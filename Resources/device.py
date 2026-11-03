@@ -11,8 +11,8 @@ from calibre.devices.scanner import DeviceScanner
 from calibre.utils.config import device_prefs
 
 
-def emit(kind, **kw):
-    print(kind + ' ' + json.dumps(kw), flush=True)
+def emit(tag, /, **kw):
+    print(tag + ' ' + json.dumps(kw), flush=True)
 
 
 def connect():
