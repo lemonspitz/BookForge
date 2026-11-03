@@ -295,20 +295,25 @@ enum Shell {
 
     @discardableResult
     static func run(_ exe: String, _ args: [String], cwd: URL? = nil) throws -> String {
+        String(decoding: try data(exe, args, cwd: cwd), as: UTF8.self)
+    }
+
+    /// Like `run`, but returns raw output. Pass `errors: false` for binary data (such as `unzip -p` of an image)
+    /// so warnings on stderr don't end up in it.
+    static func data(_ exe: String, _ args: [String], cwd: URL? = nil, errors: Bool = true) throws -> Data {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: exe)
         p.arguments = args
         if let cwd { p.currentDirectoryURL = cwd }
         let pipe = Pipe()
         p.standardOutput = pipe
-        p.standardError = pipe
+        p.standardError = errors ? pipe : FileHandle.nullDevice
         try p.run()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
-        let out = String(decoding: data, as: UTF8.self)
         if p.terminationStatus != 0 {
-            throw Failure(message: "\((exe as NSString).lastPathComponent) failed: \(out.suffix(400))")
+            throw Failure(message: "\((exe as NSString).lastPathComponent) failed: \(String(decoding: data, as: UTF8.self).suffix(400))")
         }
-        return out
+        return data
     }
 }

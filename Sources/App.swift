@@ -8,6 +8,7 @@ final class BookJob {
     enum SendMethod: String { case usb, wifi }
 
     var source: URL?
+    var libraryBook: LibraryBook?   // the source or result, once it's in the library
     var isPDF = false
     var cover: NSImage?
     var title = ""
@@ -48,9 +49,11 @@ final class BookJob {
     var busy: Bool { [.reading, .building, .translating, .sending].contains(phase) }
     var translating: Bool { !translateTo.isEmpty && translateTo != language }
 
-    func load(_ url: URL) {
+    func load(_ url: URL, libraryBook: LibraryBook? = nil) {
         guard !busy else { return }
         source = url
+        self.libraryBook = libraryBook
+        styleSheet = ""
         epub = nil
         chapters = []
         phase = .idle
@@ -67,15 +70,14 @@ final class BookJob {
             status = "\(doc.pageCount) pages. Check the title and author, then make the EPUB."
         } else {
             epub = url
-            let meta = Self.epubMetadata(url)
-            title = meta["Title"] ?? guess.title
-            author = meta["Author(s)"].flatMap { $0.hasPrefix("Unknown") ? nil : $0 }.map { $0.replacingOccurrences(of: #"\s*\[.*\]$"#, with: "", options: .regularExpression) } ?? guess.author
-            if let l = meta["Languages"]?.prefix(2) {
-                language = ["in": "id", "ind": "id", "jp": "ja"][String(l)] ?? String(l)
-                if !["id", "en", "ja"].contains(language) { language = "en" }
-            }
-            cover = Self.epubCover(url)
-            status = "EPUB ready to translate or send to your Kindle."
+            let meta = Library.readMeta(url)
+            title = libraryBook?.title ?? meta.title
+            author = libraryBook?.author ?? (meta.author.isEmpty ? guess.author : meta.author)
+            language = libraryBook?.language ?? meta.language
+            if !["id", "en", "ja"].contains(language) { language = "en" }
+            if translateTo == language { translateTo = "" }
+            cover = meta.cover.flatMap { NSImage(data: $0) }
+            status = "EPUB ready to translate or send to your e-reader."
         }
     }
 
@@ -89,28 +91,9 @@ final class BookJob {
         return (name, "")
     }
 
-    /// "Title", "Author(s)", "Languages" … as printed by Calibre's ebook-meta.
-    static func epubMetadata(_ url: URL) -> [String: String] {
-        guard Kindle.calibreInstalled, let out = try? Shell.run("\(Kindle.calibreBin)/ebook-meta", [url.path]) else { return [:] }
-        var meta: [String: String] = [:]
-        for line in out.split(separator: "\n") {
-            guard let colon = line.firstIndex(of: ":") else { continue }
-            meta[line[..<colon].trimmingCharacters(in: .whitespaces)] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
-        }
-        return meta
-    }
-
-    static func epubCover(_ url: URL) -> NSImage? {
-        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("bookforge-cover-\(UUID().uuidString).jpg")
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        guard Kindle.calibreInstalled,
-              (try? Shell.run("\(Kindle.calibreBin)/ebook-meta", [url.path, "--get-cover=\(tmp.path)"])) != nil else { return nil }
-        return NSImage(contentsOf: tmp)
-    }
-
-    private func outputURL(next to: URL, title: String) -> URL {
-        let safe = title.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: " -")
-        return to.deletingLastPathComponent().appendingPathComponent((safe.isEmpty ? "Book" : safe) + ".epub")
+    /// New books go straight into the library folder.
+    private func outputURL(title: String) -> URL {
+        Library.shared.uniqueURL(base: Library.fileName(title, author.trimmingCharacters(in: .whitespaces)), ext: "epub")
     }
 
     /// PDF → EPUB. Translation happens afterwards, on the EPUB's text.
@@ -120,7 +103,7 @@ final class BookJob {
                             author: author.trimmingCharacters(in: .whitespaces), language: language)
         let languages = ["id": ["id-ID", "en-US"], "ja": ["ja-JP", "en-US"]][language] ?? ["en-US"]
         let force = forceOCR
-        let out = outputURL(next: src, title: info.title)
+        let out = outputURL(title: info.title)
         phase = .reading
         progress = 0
         status = "Reading pages…"
@@ -145,8 +128,9 @@ final class BookJob {
                 }.value
                 chapters = layout.blocks.compactMap { if case .heading(let h) = $0 { h } else { nil } }
                 epub = out
+                libraryBook = await Library.shared.add([out], quiet: true).first
                 phase = .done
-                status = "Saved \(out.lastPathComponent) — \(chapters.count) chapters."
+                status = "Added “\(info.title)” to your library — \(chapters.count) chapters."
                 if translating { translateEPUB() } else if sendAfter { sendToKindle() }
             } catch {
                 phase = .failed
@@ -174,7 +158,7 @@ final class BookJob {
             }
         }
         let target = translateTo, from = language, eng = engine, key = apiKey
-        let out = outputURL(next: src, title: "\(title) (\(Translator.titleSuffix[target] ?? target))")
+        let out = outputURL(title: "\(title) (\(Translator.titleSuffix[target] ?? target))")
         phase = .translating
         progress = 0
         styleSheet = ""
@@ -186,8 +170,9 @@ final class BookJob {
                 }
                 styleSheet = report.styleSheet
                 epub = out
+                libraryBook = await Library.shared.add([out], quiet: true).first
                 phase = .done
-                var msg = "Saved \(out.lastPathComponent)."
+                var msg = "Added the translation to your library."
                 if let c = report.cost { msg += String(format: " Claude cost about $%.2f.", c) }
                 if report.fellBack > 0 { msg += " \(report.fellBack) of \(report.paragraphs) paragraphs used Apple Translate instead." }
                 status = msg
@@ -204,37 +189,27 @@ final class BookJob {
         if sendMethod == .wifi { sendByEmail(book); return }
         guard Kindle.calibreInstalled else {
             phase = .failed
-            status = "Calibre is needed for the USB cable. Install it from calibre-ebook.com, or switch to Wi-Fi."
+            status = "Calibre is needed for USB e-readers. Install it from calibre-ebook.com, or switch to Wi-Fi."
             return
         }
         if !skipCalibreCheck && Kindle.calibreAppRunning {
             askQuitCalibre = true
             return
         }
+        let item = libraryBook.map(SendItem.init)
+            ?? SendItem(file: book, title: title, author: author, uuid: UUID().uuidString, language: language)
         phase = .sending
         progress = 0
-        status = "Preparing for Kindle…"
+        status = "Preparing…"
         Task {
             do {
-                let outcome = try await Task.detached {
-                    try Kindle.send(epub: book) { line in Task { @MainActor in self.status = line } }
-                }.value
-                switch outcome {
-                case .sent(_, let thumb):
-                    phase = .done
-                    status = thumb ? "On your Kindle, with its cover. You can unplug it."
-                                   : "On your Kindle. The cover image wasn't confirmed; replug with Calibre open if it's blank."
-                case .noDevice:
-                    phase = .failed
-                    status = "No Kindle found. Connect it straight to the Mac with a data cable (not a hub) and unlock it."
-                case .busy:
-                    phase = .failed
-                    status = "The Kindle is busy. Close Calibre or Android File Transfer, replug the Kindle and try again."
-                }
+                status = try await Devices.sendNow([item]) { line in Task { @MainActor in self.status = line } }
+                phase = .done
             } catch {
                 phase = .failed
                 status = error.localizedDescription
             }
+            await Devices.shared.scan()
         }
     }
 
@@ -274,9 +249,10 @@ final class BookJob {
     }
 }
 
-struct ContentView: View {
-    @State private var job = BookJob()
+struct ForgeView: View {
+    @Bindable var job: BookJob
     @State private var targeted = false
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(spacing: 16) {
@@ -285,15 +261,12 @@ struct ContentView: View {
             statusArea
         }
         .padding(20)
-        .frame(minWidth: 560, minHeight: 600)
-        .onOpenURL { url in
-            if ["pdf", "epub"].contains(url.pathExtension.lowercased()) { job.load(url) }
-        }
+        .navigationTitle("Convert & Translate")
         .alert("Close Calibre?", isPresented: $job.askQuitCalibre) {
             Button("Quit Calibre and Send") { job.quitCalibreAndSend() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("The Calibre app is open and holds the Kindle connection. It has to be closed for Book Forge to send the book.")
+            Text("The Calibre app is open and holds the e-reader connection. It has to be closed for Book Forge to send the book.")
         }
         .alert("Translate with Claude?", isPresented: $job.askConfirmCost) {
             Button("Translate") { job.translateEPUB(confirmed: true) }
@@ -378,10 +351,10 @@ struct ContentView: View {
                         }
                     }
                 }
-                Section("Kindle") {
+                Section("Send") {
                     Picker("Send by", selection: $job.sendMethod) {
                         Text("USB cable").tag(BookJob.SendMethod.usb)
-                        Text("Wi-Fi (email)").tag(BookJob.SendMethod.wifi)
+                        Text("Wi-Fi (Kindle email)").tag(BookJob.SendMethod.wifi)
                     }
                     .pickerStyle(.segmented)
                     if job.sendMethod == .wifi {
@@ -390,10 +363,10 @@ struct ContentView: View {
                         Text("The sender must be on Amazon's Approved Personal Document Email List.")
                             .font(.caption).foregroundStyle(.secondary)
                     } else {
-                        Text("Uses Calibre, so the cover shows in the Kindle library.")
+                        Text("Works with Kindle, Kobo, PocketBook and other e-readers through Calibre. Kindle books get their cover in the Kindle library.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                    Toggle("Send to Kindle when done", isOn: $job.sendAfter)
+                    Toggle("Send when done", isOn: $job.sendAfter)
                 }
             }
             .formStyle(.columns)
@@ -409,9 +382,12 @@ struct ContentView: View {
                     Button("Translate EPUB") { job.translateEPUB() }
                         .disabled(job.busy)
                 }
-                Button("Send to Kindle") { job.sendToKindle() }
+                Button(job.sendMethod == .wifi ? "Email to Kindle" : "Send to E-reader") { job.sendToKindle() }
                     .disabled(job.busy || job.epub == nil)
                 Spacer()
+                if let b = job.libraryBook {
+                    Button("Read") { openWindow(id: "reader", value: b.id) }
+                }
                 if let e = job.epub, FileManager.default.fileExists(atPath: e.path) {
                     Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([e]) }
                 }
@@ -470,7 +446,12 @@ struct ContentView: View {
 
 struct BookForgeApp: App {
     var body: some Scene {
-        Window("Book Forge", id: "main") { ContentView() }
+        Window("Book Forge", id: "main") { MainView() }
             .windowResizability(.contentMinSize)
+            .defaultSize(width: 1080, height: 720)
+        WindowGroup("Reader", id: "reader", for: String.self) { $id in
+            ReaderWindow(bookID: id ?? "")
+        }
+        .defaultSize(width: 900, height: 820)
     }
 }

@@ -7,11 +7,11 @@ APP="build/Book Forge.app"
 rm -rf build && mkdir -p build/obj "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 swiftc -O -swift-version 5 -target arm64-apple-macos26.0 \
-  -framework AppKit -framework SwiftUI -framework PDFKit -framework Vision \
+  -framework AppKit -framework SwiftUI -framework PDFKit -framework Vision -framework WebKit -framework IOKit \
   Sources/*.swift -o build/obj/BookForge 2>&1 | grep -v ' warning: ' || true
 test -x build/obj/BookForge
 cp build/obj/BookForge "$APP/Contents/MacOS/BookForge"
-cp Resources/kindle_upload.py "$APP/Contents/Resources/"
+cp Resources/device.py "$APP/Contents/Resources/"
 
 ICONSET=build/obj/AppIcon.iconset
 mkdir -p "$ICONSET"
@@ -33,8 +33,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleDisplayName</key><string>Book Forge</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.0</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleShortVersionString</key><string>1.1</string>
+  <key>CFBundleVersion</key><string>2</string>
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHighResolutionCapable</key><true/>

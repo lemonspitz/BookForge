@@ -1,16 +1,10 @@
 import Foundation
 import AppKit
 
-/// Sends an EPUB to a USB-connected Kindle through Calibre (macOS has no built-in MTP support).
+/// Kindle email delivery and the Calibre install that USB e-readers go through (macOS has no built-in MTP support).
 enum Kindle {
     static let calibreBin = "/Applications/calibre.app/Contents/MacOS"
     static let calibreBundleID = "net.kovidgoyal.calibre"
-
-    enum Outcome {
-        case sent(path: String, thumbnail: Bool)
-        case noDevice
-        case busy          // something else (usually the Calibre app) holds the device
-    }
 
     /// Wi-Fi delivery: emails the EPUB to the Kindle's @kindle.com address through the Mail app.
     /// Amazon builds the library cover from the EPUB's own cover image.
@@ -58,37 +52,5 @@ enum Kindle {
         }
         _ = try? Shell.run("\(calibreBin)/calibre-debug", ["-s"])
         return !calibreAppRunning
-    }
-
-    /// Converts to AZW3 with the original cover and uploads it. `log` gets progress lines.
-    static func send(epub: URL, log: @escaping @Sendable (String) -> Void) throws -> Outcome {
-        let fm = FileManager.default
-        let work = fm.temporaryDirectory.appendingPathComponent("bookforge-kindle-\(UUID().uuidString)")
-        try fm.createDirectory(at: work, withIntermediateDirectories: true)
-        defer { try? fm.removeItem(at: work) }
-
-        let cover = work.appendingPathComponent("cover.jpg")
-        _ = try? Shell.run("\(calibreBin)/ebook-meta", [epub.path, "--get-cover=\(cover.path)"])
-        let azw3 = work.appendingPathComponent(epub.deletingPathExtension().lastPathComponent + ".azw3")
-        log("Converting to Kindle format…")
-        var args = [epub.path, azw3.path, "--output-profile", "kindle_pw3"]
-        if fm.fileExists(atPath: cover.path) { args += ["--cover", cover.path] }
-        try Shell.run("\(calibreBin)/ebook-convert", args)
-
-        guard let script = Bundle.main.url(forResource: "kindle_upload", withExtension: "py") else {
-            throw Shell.Failure(message: "kindle_upload.py is missing from the app bundle")
-        }
-        log("Uploading to Kindle…")
-        let out = try Shell.run("\(calibreBin)/calibre-debug", ["-e", script.path, azw3.path])
-        guard let line = out.split(separator: "\n").last(where: { $0.hasPrefix("RESULT ") }),
-              let obj = try? JSONSerialization.jsonObject(with: Data(line.dropFirst(7).utf8)) as? [String: Any],
-              let status = obj["status"] as? String else {
-            throw Shell.Failure(message: "Upload gave no result:\n\(out.suffix(400))")
-        }
-        switch status {
-        case "uploaded": return .sent(path: obj["path"] as? String ?? "", thumbnail: obj["thumbnail"] as? Bool ?? false)
-        case "no_device": return .noDevice
-        default: return .busy
-        }
     }
 }

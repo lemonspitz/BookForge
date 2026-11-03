@@ -80,19 +80,38 @@ if let i = CommandLine.arguments.firstIndex(of: "--translate"), i + 4 < CommandL
     dispatchMain()
 }
 
-// `BookForge --send <book.epub>` runs only the Kindle step, for troubleshooting.
+// `BookForge --send <book.epub|pdf>` sends one file to the USB e-reader, for troubleshooting.
+// `BookForge --device` prints what Calibre sees on the connected e-reader.
 if let i = CommandLine.arguments.firstIndex(of: "--send"), i + 1 < CommandLine.arguments.count {
-    do {
-        switch try Kindle.send(epub: URL(fileURLWithPath: CommandLine.arguments[i + 1]), log: { print($0) }) {
-        case .sent(let path, let thumb): print("sent to \(path), cover thumbnail: \(thumb)")
-        case .noDevice: print("no Kindle found")
-        case .busy: print("Kindle busy (close Calibre)")
+    let url = URL(fileURLWithPath: CommandLine.arguments[i + 1])
+    let meta = Library.readMeta(url)
+    Task.detached {
+        do {
+            let item = SendItem(file: url, title: meta.title, author: meta.author, uuid: UUID().uuidString, language: meta.language)
+            print(try await Devices.sendNow([item]) { print($0) })
+        } catch {
+            print("error: \(error.localizedDescription)"); exit(1)
         }
-    } catch {
-        print("error: \(error.localizedDescription)")
-        exit(1)
+        exit(0)
     }
-    exit(0)
+    dispatchMain()
+}
+if CommandLine.arguments.contains("--device") {
+    Task.detached {
+        do {
+            let r = try await Devices.script("info")
+            print("status \(r.status)\(r.error.map { ": \($0)" } ?? "")")
+            if r.status == "ok" {
+                let d = r.reader
+                print("\(d.name) [\(d.kind), \(d.driver)] formats \(d.formats.joined(separator: ",")) free \(d.free) of \(d.total)")
+                for b in d.books { print("  \(b.title) — \(b.authors.joined(separator: ", ")) (\(b.lpath)) uuid \(b.uuid)") }
+            }
+        } catch {
+            print("error: \(error.localizedDescription)"); exit(1)
+        }
+        exit(0)
+    }
+    dispatchMain()
 }
 
 BookForgeApp.main()

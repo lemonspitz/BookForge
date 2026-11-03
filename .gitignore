@@ -3,3 +3,4 @@ build/
 *.epub
 *.pdf
 *.azw3
+dist/
