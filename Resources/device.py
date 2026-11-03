@@ -3,6 +3,7 @@
 #   upload <list.json>  -> [{"file", "title", "authors", "uuid", "language", "cover"}]; sends books,
 #                          replacing older copies, with Kindle cover thumbnails
 #   delete <list.json>  -> ["device path", ...]; removes books
+#   fetch <list.json>   -> {"dest": folder, "paths": ["device path", ...]}; copies books to the Mac
 #   eject
 # Prints "PROGRESS {json}" lines while working and one "RESULT {json}" line at the end.
 import sys, os, json, traceback
@@ -101,6 +102,21 @@ def booklists(d):
     return lists
 
 
+BOOK_EXTS = {'epub', 'kepub', 'azw', 'azw3', 'azw4', 'kfx', 'mobi', 'prc', 'pdb', 'pdf', 'fb2', 'fbz', 'cbz', 'cbr',
+             'djvu', 'rtf', 'docx', 'lit', 'lrf'}
+NOT_BOOKS = ('system/', 'koreader/', 'kmc/', 'extensions/', 'documents/dictionaries/')
+
+
+def is_book(b):
+    """Drivers list every file they find; leave out notes, readmes, dictionaries and reader software."""
+    lp = (getattr(b, 'lpath', '') or b.path or '').replace('\\', '/').lower()
+    if os.path.splitext(lp)[1][1:] not in BOOK_EXTS:
+        return False
+    if lp.startswith('.') or '/.' in lp:
+        return False
+    return not any(lp.startswith(p) for p in NOT_BOOKS)
+
+
 def info(d):
     dinfo = d.get_device_information(end_session=False)
     name = guess_name(d) if type(d).__name__ == 'MTP_DEVICE' else (dinfo[0] or guess_name(d))
@@ -109,6 +125,8 @@ def info(d):
     books = []
     for bl in booklists(d):
         for b in bl:
+            if not is_book(b):
+                continue
             books.append(dict(title=b.title or '', authors=list(b.authors or []), path=b.path,
                               lpath=getattr(b, 'lpath', '') or '', uuid=getattr(b, 'uuid', '') or '',
                               size=getattr(b, 'size', 0) or 0))
@@ -173,6 +191,34 @@ def delete(d, paths):
     return dict(status='deleted', count=len(paths))
 
 
+def fetch(d, arg):
+    dest, paths = arg['dest'], arg['paths']
+    os.makedirs(dest, exist_ok=True)
+    files, failed = [], []
+    for i, path in enumerate(paths):
+        base = os.path.basename(path.replace('\\', '/')) or 'Book'
+        stem, ext = os.path.splitext(base)
+        if stem.lower().endswith('.kepub'):     # Kobo's "book.kepub.epub"
+            stem = stem[:-6]
+        out = os.path.join(dest, '%s%s' % (stem, ext))
+        n = 2
+        while os.path.exists(out):
+            out = os.path.join(dest, '%s %d%s' % (stem, n, ext))
+            n += 1
+        emit('PROGRESS', message='Copying %d of %d from the reader…' % (i + 1, len(paths)))
+        try:
+            with open(out, 'wb') as f:
+                d.get_file(path, f, end_session=False)
+            files.append(dict(path=path, file=out))
+        except Exception as e:
+            try:
+                os.remove(out)
+            except OSError:
+                pass
+            failed.append(dict(path=path, error=str(e)[:200]))
+    return dict(status='fetched', files=files, failed=failed)
+
+
 def main():
     command = sys.argv[1] if len(sys.argv) > 1 else 'info'
     arg = None
@@ -190,6 +236,8 @@ def main():
             res = upload(d, arg)
         elif command == 'delete':
             res = delete(d, arg)
+        elif command == 'fetch':
+            res = fetch(d, arg)
         elif command == 'eject':
             d.eject()
             res = dict(status='ejected')

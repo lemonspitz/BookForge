@@ -429,6 +429,11 @@ struct DeviceView: View {
         .navigationTitle(devices.reader?.name ?? "E-reader")
         .onAppear(perform: reset)
         .onChange(of: devices.reader) { reset() }
+        .onChange(of: library.books.map(\.id)) { old, new in
+            // books that just came into the library (imported from the reader, say) and are on it stay ticked
+            let fresh = Set(new).subtracting(old)
+            wanted.formUnion(library.books.filter { fresh.contains($0.id) && devices.match($0) != nil }.map(\.id))
+        }
     }
 
     private func reset() {
@@ -473,7 +478,7 @@ struct DeviceView: View {
                     }
                 }
                 if !orphans.isEmpty {
-                    Section("Only on the \(reader.name) (not in your library)") {
+                    Section {
                         ForEach(orphans) { b in
                             Toggle(isOn: Binding(get: { keep.contains(b.path) },
                                                  set: { if $0 { keep.insert(b.path) } else { keep.remove(b.path) } })) {
@@ -486,7 +491,29 @@ struct DeviceView: View {
                                     if !keep.contains(b.path) { Text("Will be removed").font(.caption).foregroundStyle(.red) }
                                     Text(ByteCountFormatter.string(fromByteCount: b.size, countStyle: .file))
                                         .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                                    if b.importable {
+                                        Button { importToLibrary([b]) } label: { Label("Import", systemImage: "square.and.arrow.down") }
+                                            .buttonStyle(.borderless)
+                                            .help("Copy this book into your library")
+                                            .disabled(devices.working != nil)
+                                    } else {
+                                        Text("Store book").font(.caption).foregroundStyle(.secondary)
+                                            .help("Bought from the Kindle Store in Amazon's KFX format, which only a Kindle can open")
+                                    }
                                 }
+                            }
+                            .contextMenu {
+                                Button("Import to Library") { importToLibrary([b]) }.disabled(!b.importable)
+                            }
+                        }
+                    } header: {
+                        HStack {
+                            Text("Only on the \(reader.name) (not in your library)")
+                            Spacer()
+                            if orphans.contains(where: \.importable) {
+                                Button("Import All") { importToLibrary(orphans.filter(\.importable)) }
+                                    .buttonStyle(.link)
+                                    .disabled(devices.working != nil)
                             }
                         }
                     }
@@ -496,6 +523,12 @@ struct DeviceView: View {
             Divider()
             footer(reader)
         }
+    }
+
+    /// Copies books from the reader into the library; they stay on the reader.
+    private func importToLibrary(_ books: [DeviceBook]) {
+        devices.message = nil
+        devices.perform { _ = await devices.importBooks(books) }
     }
 
     private func header(_ reader: EReader) -> some View {

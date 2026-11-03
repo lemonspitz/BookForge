@@ -10,6 +10,9 @@ struct DeviceBook: Codable, Identifiable, Hashable, Sendable {
     var uuid: String
     var size: Int64
     var id: String { path }
+
+    /// Amazon's KFX store books can't be converted or read outside a Kindle.
+    var importable: Bool { ((lpath.isEmpty ? path : lpath) as NSString).pathExtension.lowercased() != "kfx" }
 }
 
 struct EReader: Equatable, Sendable {
@@ -222,6 +225,71 @@ final class Devices {
         state = .ejected(name)
     }
 
+    /// Copies books from the reader into the library. Kindle books and other formats become EPUBs; store
+    /// books locked with DRM can't be copied. Returns the library books added.
+    func importBooks(_ books: [DeviceBook]) async -> [LibraryBook] {
+        guard reader != nil, !running, !books.isEmpty else { return [] }
+        running = true
+        message = nil
+        let fm = FileManager.default
+        let dest = fm.temporaryDirectory.appendingPathComponent("bookforge-import-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? fm.removeItem(at: dest)
+            working = nil
+            running = false
+        }
+        do {
+            working = "Copying from the reader…"
+            let r = try await Self.script("fetch", FetchRequest(dest: dest.path, paths: books.map(\.path))) { line in
+                Task { @MainActor in self.working = line }
+            }
+            guard r.status == "fetched" else { throw Shell.Failure(message: r.error ?? "Couldn't copy from the reader.") }
+            let byPath = Dictionary(books.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
+            func name(_ path: String) -> String {
+                let b = byPath[path]
+                return "“\(b.map { $0.title.isEmpty ? ($0.lpath as NSString).lastPathComponent : $0.title } ?? (path as NSString).lastPathComponent)”"
+            }
+            var added: [LibraryBook] = [], already = 0, locked: [String] = [], failed: [String] = []
+            failed += (r.failed ?? []).map { name($0.path) }
+            for f in r.files ?? [] {
+                guard let path = f.file else { continue }
+                let file = URL(fileURLWithPath: path)
+                if !["epub", "pdf"].contains(file.pathExtension.lowercased()) { working = "Converting \(name(f.path)) to EPUB…" }
+                let ready: URL
+                do {
+                    ready = try await Task.detached { try Self.readable(file) }.value
+                } catch let e as Shell.Failure where e.message.contains("DRM") {
+                    locked.append(name(f.path))
+                    continue
+                } catch {
+                    failed.append(name(f.path))
+                    continue
+                }
+                guard var book = await Library.shared.add([ready], quiet: true).first else {
+                    already += 1
+                    continue
+                }
+                // use the reader's title so the two copies are recognised as the same book
+                if let d = byPath[f.path], !d.title.isEmpty, !Library.same(d.title, book.title) {
+                    book.title = d.title
+                    if !d.authors.isEmpty { book.author = d.authors.joined(separator: " & ") }
+                    Library.shared.update(book)
+                }
+                added.append(book)
+            }
+            var notes: [String] = []
+            if !added.isEmpty { notes.append(added.count == 1 ? "Imported “\(added[0].title)”." : "Imported \(added.count) books.") }
+            if already > 0 { notes.append("\(already) \(already == 1 ? "was" : "were") already in the library.") }
+            if !locked.isEmpty { notes.append("\(locked.joined(separator: ", ")) \(locked.count == 1 ? "is a store book" : "are store books") locked with DRM, so \(locked.count == 1 ? "it" : "they") can't be copied.") }
+            if !failed.isEmpty { notes.append("Couldn't import \(failed.joined(separator: ", ")).") }
+            message = notes.joined(separator: " ")
+            return added
+        } catch {
+            message = error.localizedDescription
+            return []
+        }
+    }
+
     /// The copy of a library book on the reader, if there is one.
     func match(_ book: LibraryBook) -> DeviceBook? {
         guard let books = reader?.books else { return nil }
@@ -241,11 +309,33 @@ final class Devices {
         var free: Int64?
         var books: [DeviceBook]?
         var count: Int?
+        var files: [Fetched]?
+        var failed: [Fetched]?
 
         var reader: EReader {
             EReader(name: name ?? "E-reader", kind: kind ?? "generic", driver: driver ?? "", formats: formats ?? [],
                     total: total ?? 0, free: free ?? 0, books: books ?? [])
         }
+    }
+
+    struct Fetched: Decodable, Sendable {
+        var path: String
+        var file: String?
+        var error: String?
+    }
+
+    private struct FetchRequest: Encodable, Sendable {
+        var dest: String
+        var paths: [String]
+    }
+
+    /// A file fetched from a reader, as something the library can hold: EPUBs and PDFs as they are,
+    /// anything else (AZW3, MOBI, FB2…) converted to EPUB. Throws Calibre's error, which names DRM if that's the problem.
+    nonisolated static func readable(_ file: URL) throws -> URL {
+        if ["epub", "pdf"].contains(file.pathExtension.lowercased()) { return file }
+        let out = file.deletingPathExtension().appendingPathExtension("converted.epub")
+        try Shell.run("\(Kindle.calibreBin)/ebook-convert", [file.path, out.path])
+        return out
     }
 
     nonisolated static func script(_ command: String, _ payload: (any Encodable & Sendable)? = nil,
