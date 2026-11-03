@@ -11,8 +11,19 @@ struct DeviceBook: Codable, Identifiable, Hashable, Sendable {
     var size: Int64
     var id: String { path }
 
+    var fileName: String { ((lpath.isEmpty ? path : lpath) as NSString).lastPathComponent }
+    var format: String { (fileName as NSString).pathExtension.lowercased() }
+    var displayTitle: String { title.isEmpty ? (fileName as NSString).deletingPathExtension : title }
+
     /// Amazon's KFX store books can't be converted or read outside a Kindle.
-    var importable: Bool { ((lpath.isEmpty ? path : lpath) as NSString).pathExtension.lowercased() != "kfx" }
+    var importable: Bool { format != "kfx" }
+
+    /// Bought from the Kindle Store, so almost certainly locked with DRM: KFX and Print Replica files,
+    /// and files the Kindle names with the book's Amazon ID ("…_B076V53ZX8.azw").
+    var storeBook: Bool {
+        ["kfx", "azw4"].contains(format)
+            || fileName.range(of: #"[_-](asin_)?B0[0-9A-Z]{8}([_.-]|$)"#, options: [.regularExpression, .caseInsensitive]) != nil
+    }
 }
 
 struct EReader: Equatable, Sendable {
@@ -25,6 +36,22 @@ struct EReader: Equatable, Sendable {
     var books: [DeviceBook]
 
     var isKindle: Bool { kind.hasPrefix("kindle") }
+    var shortName: String { isKindle ? "Kindle" : name }
+
+    /// Whether a library book in this format can go on the reader (Kindles get EPUBs converted).
+    func accepts(_ format: String) -> Bool {
+        if isKindle { return ["epub", "pdf"].contains(format) }
+        return formats.contains(format) || (format == "epub" && formats.contains("azw3"))
+    }
+}
+
+/// What was on a reader the last time it was connected, so the library can still say which books are on it.
+struct SeenReader: Codable {
+    var name: String
+    var kind: String
+    var date: Date
+    var ids: Set<String>
+    var titles: Set<String>     // Library.key of each title
 }
 
 /// A book to put on a reader.
@@ -62,7 +89,13 @@ final class Devices {
     }
 
     var state: State = .none
-    var reader: EReader?
+    var reader: EReader? {
+        didSet {
+            reindex()
+            if let reader, reader != oldValue { remember(reader) }
+        }
+    }
+    private(set) var lastSeen: SeenReader?
     var busyKind = "generic"
     var scanning = false
     var working: String?            // what a sync is doing right now
@@ -74,6 +107,16 @@ final class Devices {
     private var pendingAction: (() async -> Void)?
     private var started = false
     private var iterators: [io_iterator_t] = []
+    @ObservationIgnored private var byID: [String: DeviceBook] = [:]
+    @ObservationIgnored private var byTitle: [String: [DeviceBook]] = [:]
+    /// Reader books that turned out to be locked with DRM, so one-click import doesn't copy them again.
+    @ObservationIgnored private var locked = Set(UserDefaults.standard.stringArray(forKey: "lockedReaderBooks") ?? [])
+
+    private init() {
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        lastSeen = (try? Data(contentsOf: Self.seenFile)).flatMap { try? dec.decode(SeenReader.self, from: $0) }
+    }
 
     // MARK: - Watching for readers
 
@@ -184,7 +227,7 @@ final class Devices {
     func cancelPending() { pendingAction = nil }
 
     /// Removes and adds books in one go, then reads the reader again.
-    func sync(add: [LibraryBook], remove: [DeviceBook]) async {
+    func sync(add: [LibraryBook], remove: [DeviceBook], note: String = "") async {
         guard let reader, !running else { return }
         running = true
         message = nil
@@ -204,6 +247,7 @@ final class Devices {
                 if !skipped.isEmpty { notes.append("skipped \(skipped.joined(separator: ", ")) (format not supported)") }
             }
             message = notes.isEmpty ? "Nothing to change." : "Done: " + notes.joined(separator: ", ") + "."
+            message! += note
             if reader.isKindle && !add.isEmpty { message! += " Covers show once the Kindle is unplugged." }
         } catch {
             message = error.localizedDescription
@@ -247,12 +291,17 @@ final class Devices {
             let byPath = Dictionary(books.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
             func name(_ path: String) -> String {
                 let b = byPath[path]
-                return "“\(b.map { $0.title.isEmpty ? ($0.lpath as NSString).lastPathComponent : $0.title } ?? (path as NSString).lastPathComponent)”"
+                return "“\(b?.displayTitle ?? (path as NSString).lastPathComponent)”"
             }
             var added: [LibraryBook] = [], already = 0, locked: [String] = [], failed: [String] = []
             failed += (r.failed ?? []).map { name($0.path) }
             for f in r.files ?? [] {
                 guard let path = f.file else { continue }
+                // a book with this title may have come into the library meanwhile (or earlier in this batch)
+                if let d = byPath[f.path], Library.shared.books.contains(where: { $0.id == d.uuid || Library.same($0.title, d.displayTitle) }) {
+                    already += 1
+                    continue
+                }
                 let file = URL(fileURLWithPath: path)
                 if !["epub", "pdf"].contains(file.pathExtension.lowercased()) { working = "Converting \(name(f.path)) to EPUB…" }
                 let ready: URL
@@ -260,6 +309,8 @@ final class Devices {
                     ready = try await Task.detached { try Self.readable(file) }.value
                 } catch let e as Shell.Failure where e.message.contains("DRM") {
                     locked.append(name(f.path))
+                    self.locked.insert(f.path)
+                    UserDefaults.standard.set(Array(self.locked), forKey: "lockedReaderBooks")
                     continue
                 } catch {
                     failed.append(name(f.path))
@@ -290,10 +341,117 @@ final class Devices {
         }
     }
 
+    // MARK: - What's where
+
+    private func reindex() {
+        let books = reader?.books ?? []
+        byID = Dictionary(books.filter { !$0.uuid.isEmpty }.map { ($0.uuid, $0) }, uniquingKeysWith: { a, _ in a })
+        byTitle = Dictionary(grouping: books) { Library.key($0.displayTitle) }
+    }
+
+    private static var seenFile: URL { Library.shared.folder.appendingPathComponent(".last-reader.json") }
+
+    private func remember(_ reader: EReader) {
+        let seen = SeenReader(name: reader.name, kind: reader.kind, date: Date(),
+                              ids: Set(reader.books.map(\.uuid).filter { !$0.isEmpty }),
+                              titles: Set(reader.books.map { Library.key($0.displayTitle) }))
+        lastSeen = seen
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        try? enc.encode(seen).write(to: Self.seenFile, options: .atomic)
+    }
+
+    /// Every copy of a library book on the reader: the one Book Forge put there (same id) and any with the same title.
+    func copies(of book: LibraryBook) -> [DeviceBook] {
+        var out = byID[book.id].map { [$0] } ?? []
+        for d in byTitle[Library.key(book.title)] ?? [] where !out.contains(d) { out.append(d) }
+        return out
+    }
+
     /// The copy of a library book on the reader, if there is one.
-    func match(_ book: LibraryBook) -> DeviceBook? {
-        guard let books = reader?.books else { return nil }
-        return books.first { $0.uuid == book.id } ?? books.first { Library.same($0.title, book.title) }
+    func match(_ book: LibraryBook) -> DeviceBook? { copies(of: book).first }
+
+    /// Whether the book was on the reader when it was last connected (while it's unplugged).
+    func wasOnReader(_ book: LibraryBook) -> Bool {
+        guard reader == nil, let seen = lastSeen else { return false }
+        return seen.ids.contains(book.id) || seen.titles.contains(Library.key(book.title))
+    }
+
+    /// Books on the reader that aren't in the library.
+    var onlyOnReader: [DeviceBook] {
+        let lib = Library.shared.books
+        let ids = Set(lib.map(\.id)), titles = Set(lib.map { Library.key($0.title) })
+        return (reader?.books ?? []).filter { !ids.contains($0.uuid) && !titles.contains(Library.key($0.displayTitle)) }
+    }
+
+    /// Store books and books found to be locked: Import All leaves them on the reader.
+    func likelyLocked(_ b: DeviceBook) -> Bool { !b.importable || b.storeBook || locked.contains(b.path) }
+
+    /// What one-click Import copies: books only on the reader that aren't locked, one copy per title
+    /// (EPUB, then Kindle formats, then PDF).
+    var toImport: [DeviceBook] {
+        let rank = ["epub": 0, "kepub": 0, "azw3": 1, "mobi": 2, "azw": 3, "pdf": 9]
+        return Self.onePerTitle(onlyOnReader.filter { !likelyLocked($0) },
+                                key: { Library.key($0.displayTitle) }, rank: { rank[$0.format] ?? 5 })
+    }
+
+    /// What one-click Send copies: library books not on the reader that it can open, one copy per title (EPUB before PDF).
+    var toSend: [LibraryBook] {
+        guard let reader else { return [] }
+        return Self.onePerTitle(Library.shared.books.filter { match($0) == nil && reader.accepts($0.format) },
+                                key: { Library.key($0.title) }, rank: { $0.format == "epub" ? 0 : 1 })
+    }
+
+    /// Keeps the best-ranked item of each title, in the original order.
+    private static func onePerTitle<T>(_ items: [T], key: (T) -> String, rank: (T) -> Int) -> [T] {
+        var best: [String: (Int, Int)] = [:]        // key -> (rank, index)
+        for (i, item) in items.enumerated() {
+            let k = key(item), r = rank(item)
+            if let b = best[k], b.0 <= r { continue }
+            best[k] = (r, i)
+        }
+        let keep = Set(best.values.map(\.1))
+        return items.enumerated().filter { keep.contains($0.offset) }.map(\.element)
+    }
+
+    // MARK: - One click
+
+    /// Copies every book that's only on the reader into the library. Books already in the library, second
+    /// copies of the same title and store books are left alone.
+    func importNew() async {
+        guard let reader else { return }
+        let books = toImport
+        let store = onlyOnReader.filter { likelyLocked($0) }.count
+        func storeNote(other: Bool) -> String {
+            store == 0 ? "" : " Left \(store)\(other ? " other" : "") store book\(store == 1 ? "" : "s") on the \(reader.shortName) (locked with DRM)."
+        }
+        guard !books.isEmpty else {
+            message = "Every book on the \(reader.shortName) is already in your library." + storeNote(other: false)
+            return
+        }
+        let lockedBefore = locked.count
+        _ = await importBooks(books)
+        message = (message ?? "") + storeNote(other: locked.count > lockedBefore)
+    }
+
+    /// Copies every library book that isn't on the reader yet. Nothing is removed, and books already on it aren't copied again.
+    func sendNew() async {
+        guard let reader else { return }
+        let books = toSend
+        let already = Library.shared.books.filter { match($0) != nil }.count
+        let alreadyNote = already == 0 ? "" : " \(already) \(already == 1 ? "was" : "were") already on it."
+        guard !books.isEmpty else {
+            message = "Every book in your library is already on the \(reader.shortName)."
+            return
+        }
+        let size = books.reduce(Int64(0)) { sum, b in
+            sum + Int64((try? Library.shared.url(b).resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
+        }
+        if reader.free > 0, size > reader.free - 20_000_000 {
+            message = "Not enough space on the \(reader.shortName): these books need about \(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) and \(ByteCountFormatter.string(fromByteCount: reader.free, countStyle: .file)) is free. Tick fewer books below and press Sync."
+            return
+        }
+        await sync(add: books, remove: [], note: alreadyNote)
     }
 
     // MARK: - Calibre plumbing (callable off the main actor, also from the command line)

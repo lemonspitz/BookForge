@@ -39,6 +39,8 @@ final class Library {
     var importing = false
     var message: String?
     private var covers: [String: NSImage] = [:]
+    /// The first look through the folder, started at launch.
+    @ObservationIgnored private(set) var loading: Task<Void, Never>?
 
     private var catalog: URL { folder.appendingPathComponent("library.json") }
     private var coverFolder: URL { folder.appendingPathComponent(".covers") }
@@ -53,7 +55,7 @@ final class Library {
             dec.dateDecodingStrategy = .iso8601
             books = (try? dec.decode([LibraryBook].self, from: data)) ?? []
         }
-        Task { await rescan() }
+        loading = Task { await rescan() }
     }
 
     func url(_ book: LibraryBook) -> URL { folder.appendingPathComponent(book.file) }
@@ -192,9 +194,14 @@ final class Library {
         return out
     }
 
-    nonisolated static func same(_ a: String, _ b: String) -> Bool {
-        a.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).trimmingCharacters(in: .whitespaces)
-            == b.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).trimmingCharacters(in: .whitespaces)
+    nonisolated static func same(_ a: String, _ b: String) -> Bool { key(a) == key(b) }
+
+    /// A title or name reduced to its letters and digits, so "The Hobbit: Or There and Back Again" and
+    /// "the hobbit - or there and back again" are recognised as the same book.
+    nonisolated static func key(_ s: String) -> String {
+        let folded = s.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+        let k = String(String.UnicodeScalarView(folded.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }))
+        return k.isEmpty ? folded.trimmingCharacters(in: .whitespaces) : k
     }
 
     nonisolated static func fileName(_ title: String, _ author: String) -> String {

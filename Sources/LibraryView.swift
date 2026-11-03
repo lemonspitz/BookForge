@@ -107,6 +107,7 @@ struct LibraryView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var search = ""
     @AppStorage("librarySort") private var sort = "added"
+    @AppStorage("libraryShow") private var show = "all"     // all, on, off (on the e-reader or not)
     @State private var selected: Set<String> = []
     @State private var targeted = false
     @State private var editing: LibraryBook?
@@ -119,8 +120,11 @@ struct LibraryView: View {
 
     private var books: [LibraryBook] {
         let q = search.trimmingCharacters(in: .whitespaces)
-        let found = q.isEmpty ? library.books : library.books.filter {
+        var found = q.isEmpty ? library.books : library.books.filter {
             $0.title.localizedStandardContains(q) || $0.author.localizedStandardContains(q)
+        }
+        if show != "all" && deviceName != nil {
+            found = found.filter { (status($0) != .none) == (show == "on") }
         }
         switch sort {
         case "title": return found.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
@@ -134,8 +138,8 @@ struct LibraryView: View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 130, maximum: 170), spacing: 22, alignment: .top)], spacing: 26) {
                 ForEach(books) { book in
-                    BookCell(book: book, selected: selected.contains(book.id), onDevice: devices.match(book) != nil,
-                             deviceName: devices.reader?.name)
+                    BookCell(book: book, selected: selected.contains(book.id), onDevice: status(book),
+                             deviceName: deviceName ?? "the e-reader", seen: devices.lastSeen?.date)
                         .onTapGesture(count: 2) { open(book) }
                         .simultaneousGesture(TapGesture().onEnded { select(book) })
                         .contextMenu { menu(for: book) }
@@ -153,8 +157,12 @@ struct LibraryView: View {
                 } actions: {
                     Button("Add Books…") { choose() }
                 }
-            } else if books.isEmpty {
+            } else if books.isEmpty && !search.isEmpty {
                 ContentUnavailableView.search(text: search)
+            } else if books.isEmpty {
+                ContentUnavailableView(show == "on" ? "None of your books are on the \(deviceName ?? "e-reader")"
+                                                    : "All your books are on the \(deviceName ?? "e-reader")",
+                                       systemImage: "checkmark.circle")
             }
         }
         .overlay {
@@ -177,7 +185,35 @@ struct LibraryView: View {
                         Text("Author").tag("author")
                     }
                     .pickerStyle(.inline)
+                    if let name = deviceName {
+                        Picker("Show", selection: $show) {
+                            Text("All Books").tag("all")
+                            Text("On the \(name)").tag("on")
+                            Text("Not on the \(name)").tag("off")
+                        }
+                        .pickerStyle(.inline)
+                    }
                 } label: { Label("Sort", systemImage: "arrow.up.arrow.down") }
+            }
+            if let reader = devices.reader, devices.state == .connected {
+                ToolbarItem {
+                    let n = devices.toImport.count
+                    Button { devices.message = nil; devices.perform { await devices.importNew() } } label: {
+                        Label("Import from \(reader.shortName)", systemImage: "square.and.arrow.down")
+                    }
+                    .help(n == 0 ? "Every book on the \(reader.shortName) you can copy is already in your library"
+                                 : "Copy \(n) book\(n == 1 ? "" : "s") that \(n == 1 ? "is" : "are") only on the \(reader.shortName) into your library")
+                    .disabled(devices.working != nil)
+                }
+                ToolbarItem {
+                    let n = devices.toSend.count
+                    Button { devices.message = nil; devices.perform { await devices.sendNew() } } label: {
+                        Label("Send to \(reader.shortName)", systemImage: "square.and.arrow.up")
+                    }
+                    .help(n == 0 ? "Every book in your library is already on the \(reader.shortName)"
+                                 : "Copy \(n) book\(n == 1 ? "" : "s") that \(n == 1 ? "isn't" : "aren't") on the \(reader.shortName) yet")
+                    .disabled(devices.working != nil)
+                }
             }
             ToolbarItem {
                 Button { choose() } label: { Label("Add Books", systemImage: "plus") }
@@ -201,8 +237,29 @@ struct LibraryView: View {
         }
     }
 
+    /// The e-reader the library's badges are about: the connected one, or the one last connected.
+    private var deviceName: String? {
+        if let r = devices.reader { return r.shortName }
+        return devices.lastSeen.map { $0.kind.hasPrefix("kindle") ? "Kindle" : $0.name }
+    }
+
+    private func status(_ book: LibraryBook) -> DeviceStatus {
+        if devices.reader != nil { return devices.match(book) != nil ? .on : .none }
+        return devices.wasOnReader(book) ? .wasOn : .none
+    }
+
+    /// How the library and the connected reader compare.
+    private var summary: String? {
+        guard let reader = devices.reader, devices.state == .connected else { return nil }
+        let on = library.books.filter { devices.match($0) != nil }.count
+        let only = devices.onlyOnReader.count
+        var parts = ["\(on) of \(library.books.count) books are on your \(reader.shortName)"]
+        if only > 0 { parts.append("\(only) book\(only == 1 ? " is" : "s are") only on the \(reader.shortName)") }
+        return parts.joined(separator: " · ")
+    }
+
     private var statusBar: some View {
-        let text = devices.working ?? library.message ?? devices.message
+        let text = devices.working ?? library.message ?? devices.message ?? summary
         return Group {
             if let text {
                 HStack(spacing: 8) {
@@ -300,24 +357,28 @@ struct LibraryView: View {
     }
 }
 
+enum DeviceStatus { case on, wasOn, none }
+
 private struct BookCell: View {
     let book: LibraryBook
     let selected: Bool
-    let onDevice: Bool
-    let deviceName: String?
+    let onDevice: DeviceStatus
+    let deviceName: String
+    let seen: Date?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             BookCover(book: book)
                 .overlay(alignment: .topTrailing) {
-                    if onDevice {
+                    if onDevice != .none {
                         Image(systemName: "checkmark.circle.fill")
                             .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, .green)
+                            .foregroundStyle(.white, onDevice == .on ? .green : .gray)
                             .font(.title3)
                             .shadow(radius: 2)
                             .padding(5)
-                            .help("On \(deviceName ?? "the e-reader")")
+                            .help(onDevice == .on ? "On your \(deviceName)"
+                                  : "Was on your \(deviceName) when it was last connected\(seen.map { " (\($0.formatted(date: .abbreviated, time: .shortened)))" } ?? "")")
                     }
                 }
                 .overlay(alignment: .bottomLeading) {
@@ -442,15 +503,11 @@ struct DeviceView: View {
     }
 
     /// Books on the reader that aren't in the library.
-    private var orphans: [DeviceBook] {
-        guard let books = devices.reader?.books else { return [] }
-        let matched = Set(library.books.compactMap { devices.match($0)?.path })
-        return books.filter { !matched.contains($0.path) }
-    }
+    private var orphans: [DeviceBook] { devices.onlyOnReader }
 
     private var toAdd: [LibraryBook] { library.books.filter { wanted.contains($0.id) && devices.match($0) == nil } }
     private var toRemove: [DeviceBook] {
-        library.books.filter { !wanted.contains($0.id) }.compactMap { devices.match($0) }
+        library.books.filter { !wanted.contains($0.id) }.flatMap { devices.copies(of: $0) }
             + orphans.filter { !keep.contains($0.path) }
     }
 
@@ -471,7 +528,7 @@ struct DeviceView: View {
                     }
                 } header: {
                     HStack {
-                        Text("Your library: tick the books to keep on the \(reader.name)")
+                        Text("Your library: tick the books to keep on the \(reader.shortName)")
                         Spacer()
                         Button("All") { wanted.formUnion(shown.map(\.id)) }.buttonStyle(.link)
                         Button("None") { wanted.subtract(shown.map(\.id)) }.buttonStyle(.link)
@@ -489,16 +546,20 @@ struct DeviceView: View {
                                     }
                                     Spacer()
                                     if !keep.contains(b.path) { Text("Will be removed").font(.caption).foregroundStyle(.red) }
+                                    else { StatusTag(text: "Not in library", color: .orange) }
                                     Text(ByteCountFormatter.string(fromByteCount: b.size, countStyle: .file))
                                         .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                                    if devices.likelyLocked(b) {
+                                        Text("Store book").font(.caption).foregroundStyle(.secondary)
+                                            .help(b.importable ? "Bought from the Kindle Store and locked with DRM, so Import All leaves it on the reader"
+                                                               : "Bought from the Kindle Store in Amazon's KFX format, which only a Kindle can open")
+                                    }
                                     if b.importable {
                                         Button { importToLibrary([b]) } label: { Label("Import", systemImage: "square.and.arrow.down") }
                                             .buttonStyle(.borderless)
-                                            .help("Copy this book into your library")
+                                            .help(devices.likelyLocked(b) ? "Try copying this book into your library (store books usually can't be)"
+                                                                          : "Copy this book into your library")
                                             .disabled(devices.working != nil)
-                                    } else {
-                                        Text("Store book").font(.caption).foregroundStyle(.secondary)
-                                            .help("Bought from the Kindle Store in Amazon's KFX format, which only a Kindle can open")
                                     }
                                 }
                             }
@@ -508,10 +569,10 @@ struct DeviceView: View {
                         }
                     } header: {
                         HStack {
-                            Text("Only on the \(reader.name) (not in your library)")
+                            Text("Only on the \(reader.shortName) (not in your library)")
                             Spacer()
-                            if orphans.contains(where: \.importable) {
-                                Button("Import All") { importToLibrary(orphans.filter(\.importable)) }
+                            if !devices.toImport.isEmpty {
+                                Button("Import All") { importNew() }
                                     .buttonStyle(.link)
                                     .disabled(devices.working != nil)
                             }
@@ -529,6 +590,16 @@ struct DeviceView: View {
     private func importToLibrary(_ books: [DeviceBook]) {
         devices.message = nil
         devices.perform { _ = await devices.importBooks(books) }
+    }
+
+    private func importNew() {
+        devices.message = nil
+        devices.perform { await devices.importNew() }
+    }
+
+    private func sendNew() {
+        devices.message = nil
+        devices.perform { await devices.sendNew() }
     }
 
     private func header(_ reader: EReader) -> some View {
@@ -552,6 +623,24 @@ struct DeviceView: View {
                     Text("\(ByteCountFormatter.string(fromByteCount: reader.free, countStyle: .file)) free of \(ByteCountFormatter.string(fromByteCount: reader.total, countStyle: .file)) · \(reader.books.count) books")
                         .font(.callout).foregroundStyle(.secondary)
                 }
+                Text(comparison(reader)).font(.callout).foregroundStyle(.secondary)
+                HStack {
+                    let imports = devices.toImport.count, sends = devices.toSend.count
+                    Button(action: importNew) {
+                        Label(imports == 0 ? "Nothing New to Import" : "Import \(imports) New Book\(imports == 1 ? "" : "s")",
+                              systemImage: "square.and.arrow.down")
+                    }
+                    .help("Copy the books that are only on the \(reader.shortName) into your library. Books already in it, extra copies and store books are skipped.")
+                    .disabled(imports == 0)
+                    Button(action: sendNew) {
+                        Label(sends == 0 ? "Nothing New to Send" : "Send \(sends) New Book\(sends == 1 ? "" : "s")",
+                              systemImage: "square.and.arrow.up")
+                    }
+                    .help("Copy the library books that aren't on the \(reader.shortName) yet. Nothing is removed and nothing is copied twice.")
+                    .disabled(sends == 0)
+                }
+                .controlSize(.large)
+                .disabled(devices.working != nil || devices.scanning)
                 HStack {
                     Button { Task { await devices.scan() } } label: { Label("Refresh", systemImage: "arrow.clockwise") }
                     Button { devices.perform { await devices.eject() } } label: { Label("Eject", systemImage: "eject") }
@@ -561,6 +650,14 @@ struct DeviceView: View {
             Spacer()
         }
         .padding(20)
+    }
+
+    /// "40 in both · 12 only in your library · 110 only on the Kindle"
+    private func comparison(_ reader: EReader) -> String {
+        let both = library.books.filter { devices.match($0) != nil }.count
+        let libOnly = library.books.count - both
+        let readerOnly = orphans.count
+        return "\(both) in both · \(libOnly) only in your library · \(readerOnly) only on the \(reader.shortName)"
     }
 
     private func row(_ book: LibraryBook, reader: EReader) -> some View {
@@ -574,9 +671,10 @@ struct DeviceView: View {
             }
             Spacer()
             Group {
-                if onDevice && want { Text("On the reader").foregroundStyle(.secondary) }
+                if onDevice && want { StatusTag(text: "On \(reader.shortName)", color: .green) }
                 else if want { Text(reader.isKindle && book.format == "epub" ? "Will be added (as Kindle book)" : "Will be added").foregroundStyle(Color.accentColor) }
                 else if onDevice { Text("Will be removed").foregroundStyle(.red) }
+                else { StatusTag(text: "Not on \(reader.shortName)", color: .secondary) }
             }
             .font(.caption)
         }
@@ -664,5 +762,20 @@ struct DeviceView: View {
                     .disabled(devices.scanning)
             }
         }
+    }
+}
+
+/// A small coloured label saying where a book is.
+private struct StatusTag: View {
+    let text: String
+    let color: Color
+
+    var body: some View {
+        Text(text)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(color.opacity(0.12), in: Capsule())
     }
 }
