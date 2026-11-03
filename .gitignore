@@ -4,3 +4,4 @@ build/
 *.pdf
 *.azw3
 dist/
+__pycache__/

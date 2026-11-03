@@ -1,6 +1,6 @@
 # Book Forge
 
-A macOS app for your e-book library: it reads EPUBs and PDFs, turns PDF books into clean EPUBs, translates them between Indonesian, English and Japanese, and syncs them to a Kindle or other e-reader with covers showing.
+An app for your e-book library on macOS, Windows and Linux: it reads EPUBs and PDFs, turns PDF books into clean EPUBs, translates them between Indonesian, English and Japanese, and syncs them to a Kindle or other e-reader with covers showing.
 
 ## What it does
 
@@ -16,20 +16,31 @@ A macOS app for your e-book library: it reads EPUBs and PDFs, turns PDF books in
 
 ## Requirements
 
-- macOS 26 on Apple silicon.
+- **Mac:** macOS 26 on Apple silicon.
+- **Windows and Linux:** a current [Calibre](https://calibre-ebook.com) (tested with 9.15; Book Forge runs on Calibre's built-in Python). For scanned PDFs, [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) with the Indonesian and Japanese languages.
 - For e-readers over USB: [Calibre](https://calibre-ebook.com) installed in `/Applications` (Book Forge uses its device drivers). Close Calibre's window while syncing, because it holds the connection.
 - For Apple translation: the language pair downloaded under System Settings → General → Language & Region → Translation Languages.
 - For Claude translation: an API key from [console.anthropic.com](https://console.anthropic.com). The book's text is sent to Anthropic for translation.
 
 ## Install
 
-Download `Book-Forge.zip` from the [latest release](../../releases/latest), unzip it and move **Book Forge** to Applications.
+Download from the [latest release](../../releases/latest):
+
+- **Mac:** `Book-Forge.zip`. Unzip it and move **Book Forge** to Applications.
+- **Windows:** `Book-Forge-Windows.zip`. Install Calibre, unzip the folder somewhere it can stay, and double-click **Install.cmd** (adds Book Forge to the Start menu and desktop).
+- **Linux:** `Book-Forge-Linux.zip`. Install Calibre, unzip, and run `./install.sh` (adds Book Forge to your applications menu).
+
+On the Mac:
 
 The app is not notarized, so the first time macOS will refuse to open it. Right-click the app and choose **Open**, or go to System Settings → Privacy & Security and click **Open Anyway**. Alternatively, remove the quarantine flag:
 
 ```bash
 xattr -dr com.apple.quarantine "/Applications/Book Forge.app"
 ```
+
+## Windows and Linux
+
+The Windows and Linux version lives in [`windows-linux/`](windows-linux). It is a Python/Qt app that runs inside Calibre (`calibre-debug -e run.py`) and shares the library folder layout and `Resources/device.py` with the Mac app. Where macOS features don't exist it uses: Tesseract instead of Apple's text recognition, Claude only for translation (no Apple Translate), email through your mail server (SMTP, e.g. Gmail with an app password) instead of the Mail app, and the system keyring (Windows Credential Manager, Secret Service) instead of the Keychain. PDFs open page by page. `windows-linux/package.sh` builds the two zips. Command-line modes: `calibre-debug -e run.py -- --import-new`, `--send-new`, `--device`, `--convert in.pdf out.epub [id|en|ja]`.
 
 ## Build from source
 
