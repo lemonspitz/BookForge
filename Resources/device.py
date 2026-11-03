@@ -200,7 +200,7 @@ def main():
         traceback.print_exc()
         emit('RESULT', status='error', error=str(e)[:400])
     finally:
-        if command != 'eject':
+        if command != 'eject' and type(d).__name__ != 'MTP_DEVICE':
             try:
                 d.shutdown()
             except Exception:
@@ -208,3 +208,9 @@ def main():
 
 
 main()
+# Releasing an MTP connection makes libmtp reset the USB port, and some readers (Kindles among them)
+# then drop off the Mac until they're replugged. Leaving without releasing lets the system close the
+# connection quietly instead; the next run reopens it. Ejecting still releases it on purpose.
+sys.stdout.flush()
+sys.stderr.flush()
+os._exit(0)
