@@ -465,7 +465,7 @@ class Devices(QObject):
             if need:
                 msg += " The %s can't open %s as EPUB%s. %s" % (short_name(reader), ', '.join(need),
                                                                 's' if len(need) > 1 else '', NEEDS_CALIBRE)
-            if is_kindle(reader) and add and can_convert():
+            if is_kindle(reader) and any(lib.Library.format(b) == 'epub' for b in add) and can_convert():
                 msg += ' Covers show once the Kindle is unplugged.'
             self.message = msg
         except Exception as e:

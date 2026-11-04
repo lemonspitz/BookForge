@@ -132,8 +132,15 @@ def open_reader(key, label):
         name = mount.split('mtp:host=', 1)[1].replace('_', ' ')
         return FolderStorage(where, label, kind_of(name) if kind_of(name) != 'generic' else (volume_kind(where)[0] or 'generic'), mount=mount)
     if kind_ == 'mtp':
+        import time
         from . import libmtp
         dev = libmtp.open_device(where)
+        for _ in range(3):
+            # another program may be reading it for a moment
+            if dev is not None:
+                break
+            time.sleep(1.5)
+            dev = libmtp.open_device(where)
         if dev is None:
             raise Busy(label)
         name = clean_name(dev.model or dev.friendly or label)

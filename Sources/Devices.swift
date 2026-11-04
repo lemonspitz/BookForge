@@ -259,7 +259,9 @@ final class Devices {
             if !needCalibre.isEmpty {
                 message! += " The \(reader.shortName) can't open \(needCalibre.joined(separator: ", ")) as EPUB. " + Self.needsCalibreAdvice
             }
-            if reader.isKindle && !add.isEmpty && Kindle.calibreInstalled { message! += " Covers show once the Kindle is unplugged." }
+            if reader.isKindle && add.contains(where: { $0.format == "epub" }) && Kindle.calibreInstalled {
+                message! += " Covers show once the Kindle is unplugged."
+            }
         } catch {
             message = error.localizedDescription
         }

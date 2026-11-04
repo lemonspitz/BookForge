@@ -723,7 +723,13 @@ final class ReaderLink: @unchecked Sendable {
                 let (kind, name) = ReaderDetect.volumeKind(url)!
                 storage = FolderStorage(root: url, name: name, kind: kind)
             case .mtp(let raw):
-                guard let s = MTPStorage(raw) else {
+                // another program (Image Capture, an older Book Forge) may be reading it for a moment
+                var opened = MTPStorage(raw)
+                for _ in 0..<3 where opened == nil {
+                    Thread.sleep(forTimeInterval: 1.5)
+                    opened = MTPStorage(raw)
+                }
+                guard let s = opened else {
                     return Devices.ScriptResult(status: "open_failed", name: raw.product.isEmpty ? "Your e-reader" : raw.product,
                                                 kind: ReaderDetect.kind(of: [raw.vendor, raw.product]))
                 }
