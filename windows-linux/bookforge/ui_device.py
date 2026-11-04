@@ -135,7 +135,7 @@ class DeviceView(QWidget):
         ev.addWidget(self.empty_art, 0, Qt.AlignmentFlag.AlignCenter)
         self.empty_title = big(QLabel(alignment=Qt.AlignmentFlag.AlignCenter), 1.3)
         self.empty_text = QLabel(alignment=Qt.AlignmentFlag.AlignCenter, wordWrap=True)
-        self.empty_text.setMaximumWidth(520)
+        self.empty_text.setFixedWidth(480)      # a fixed width lets the wrapped text get its full height
         ev.addWidget(self.empty_title)
         ev.addWidget(self.empty_text, 0, Qt.AlignmentFlag.AlignCenter)
         br = QHBoxLayout()

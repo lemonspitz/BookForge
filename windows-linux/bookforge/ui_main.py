@@ -80,7 +80,7 @@ class MainWindow(QMainWindow):
         self.side.addItem(self.dev_item)
         self.side.setItemWidget(self.dev_item, self.dev_row)
         section('Tools')
-        self.forge_item = QListWidgetItem('🪄  Convert & Translate')
+        self.forge_item = QListWidgetItem('✨  Convert & Translate')
         self.side.addItem(self.forge_item)
 
         self.stack = QStackedWidget()
