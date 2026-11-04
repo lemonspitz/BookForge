@@ -5,7 +5,7 @@ port, and some readers (Kindles among them) then drop off the computer until the
 only released when the user ejects the reader."""
 import ctypes, ctypes.util, os, sys, tempfile, threading
 
-from .meta import NOT_BOOKS
+from .meta import skip_folder
 
 ROOT = 0xFFFFFFFF          # LIBMTP_FILES_AND_FOLDERS_ROOT
 FILETYPE_FOLDER, FILETYPE_JPEG, FILETYPE_UNKNOWN = 0, 14, 44
@@ -165,7 +165,8 @@ class MTPDevice:
             while s:
                 c = s.contents
                 out.append((c.id, (c.StorageDescription or b'').decode('utf-8', 'replace'), c.MaxCapacity, c.FreeSpaceInBytes))
-                s = c.next
+                nxt = ctypes.cast(c.next, ctypes.c_void_p).value
+                s = ctypes.cast(nxt, ctypes.POINTER(Storage)) if nxt else None
             return out
 
     def listing(self, storage_id, parent):
@@ -177,9 +178,10 @@ class MTPDevice:
             while f:
                 c = f.contents
                 out.append((c.item_id, _str(c.filename, free=False), c.filesize, c.filetype == FILETYPE_FOLDER))
-                nxt = c.next
+                # copy the link's address before freeing: ctypes reads pointer fields from the struct's memory
+                nxt = ctypes.cast(c.next, ctypes.c_void_p).value
                 L.LIBMTP_destroy_file_t(f)
-                f = nxt
+                f = ctypes.cast(nxt, ctypes.POINTER(File)) if nxt else None
             L.LIBMTP_Clear_Errorstack(self.dev)
             return out
 
@@ -232,7 +234,7 @@ class MTPStorage:
             for name, (i, size, is_dir) in list(self._entries(folder).items()):
                 lp = (folder + '/' if folder else '') + name
                 if is_dir:
-                    if not name.startswith('.') and not any((lp + '/').lower().startswith(p) for p in NOT_BOOKS):
+                    if not skip_folder(lp):
                         walk(lp)
                 else:
                     out.append((lp, size))

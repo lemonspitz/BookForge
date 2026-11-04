@@ -24,7 +24,7 @@ protocol ReaderStorage: AnyObject {
 
 enum ReaderMeta {
     static let bookExts: Set<String> = ["epub", "kepub", "azw", "azw3", "azw4", "kfx", "mobi", "prc", "pdb", "pdf", "fb2", "fbz",
-                                        "cbz", "cbr", "djvu", "rtf", "docx", "lit", "lrf", "txt"]
+                                        "cbz", "cbr", "djvu", "rtf", "docx", "lit", "lrf"]
     static let notBooks = ["system/", "koreader/", "kmc/", "extensions/", "documents/dictionaries/", ".kobo/", ".adobe-digital-editions/"]
 
     static func ext(_ lpath: String) -> String { (lpath as NSString).pathExtension.lowercased() }
@@ -33,14 +33,16 @@ enum ReaderMeta {
     static func isBook(_ lpath: String) -> Bool {
         let lp = lpath.lowercased()
         let e = ext(lp)
-        guard bookExts.contains(e), e != "txt" || lp.hasPrefix("documents/") else { return false }
-        if lp.hasPrefix(".") || lp.contains("/.") { return false }
+        guard bookExts.contains(e) else { return false }
+        if lp.hasPrefix(".") || lp.contains("/.") || lp.contains(".sdr/") { return false }
         return !notBooks.contains { lp.hasPrefix($0) }
     }
 
+    /// Folders that never hold books: hidden ones, the reader's system folders, and books' .sdr side folders
+    /// (notes, and asset files of store books).
     static func skipFolder(_ lpath: String) -> Bool {
         let lp = lpath.lowercased() + "/"
-        return (lpath as NSString).lastPathComponent.hasPrefix(".") || notBooks.contains { lp.hasPrefix($0) }
+        return (lpath as NSString).lastPathComponent.hasPrefix(".") || lp.hasSuffix(".sdr/") || notBooks.contains { lp.hasPrefix($0) }
     }
 
     /// Title and authors guessed from a file name like "Title - Author.azw3" or "Title_B076V53ZX8.kfx".
@@ -302,8 +304,12 @@ final class MTPStorage: ReaderStorage, @unchecked Sendable {
         self.raw = raw
         self.sid = st.0
         self.manufacturer = maker
-        self.name = model.isEmpty ? (friendly.isEmpty ? raw.product : friendly) : model
-        self.kind = ReaderDetect.kind(of: [self.name, maker, raw.vendor, raw.product])
+        // without the serial number, e.g. "Kindle Paperwhite Signature Edition GN433W11534501"
+        let full = model.isEmpty ? (friendly.isEmpty ? raw.product : friendly) : model
+        self.name = full.replacingOccurrences(of: #"\s+[A-Z0-9]{10,}$"#, with: "", options: .regularExpression)
+        // the reader's own name decides; libmtp's device table can be wrong (it calls this Paperwhite a Scribe)
+        let own = ReaderDetect.kind(of: [self.name, maker])
+        self.kind = own != "generic" ? own : ReaderDetect.kind(of: [raw.vendor, raw.product])
     }
 
     func space() -> (total: Int64, free: Int64) {
@@ -544,14 +550,14 @@ enum ReaderOps {
 
     struct Entry: Codable { var title: String; var authors: [String]; var uuid: String }
 
-    /// What Book Forge knows about the reader's books: its own bookforge.json, and Calibre's metadata.calibre
-    /// for books sent by older versions.
+    /// What Book Forge knows about the reader's books, by lowercased path: its own bookforge.json, and Calibre's
+    /// metadata.calibre for books sent by older versions (Calibre writes MTP paths in lowercase).
     static func loadIndex(_ s: ReaderStorage) -> [String: Entry] {
         var known: [String: Entry] = [:]
         for name in ["metadata.calibre", ".metadata.calibre"] {
             if let d = s.readSmall(name), let list = try? JSONSerialization.jsonObject(with: d) as? [[String: Any]] {
                 for b in list {
-                    let lp = (b["lpath"] as? String ?? "").replacingOccurrences(of: "\\", with: "/")
+                    let lp = (b["lpath"] as? String ?? "").replacingOccurrences(of: "\\", with: "/").lowercased()
                     if !lp.isEmpty {
                         known[lp] = Entry(title: b["title"] as? String ?? "", authors: b["authors"] as? [String] ?? [],
                                           uuid: b["uuid"] as? String ?? "")
@@ -560,7 +566,7 @@ enum ReaderOps {
             }
         }
         if let d = s.readSmall(indexPath(s.kind)), let ours = try? JSONDecoder().decode([String: Entry].self, from: d) {
-            known.merge(ours) { _, new in new }
+            for (lp, e) in ours { known[lp.lowercased()] = e }
         }
         return known
     }
@@ -613,7 +619,7 @@ enum ReaderOps {
     static func listBooks(_ s: ReaderStorage, files: [(lpath: String, size: Int64)]) -> [DeviceBook] {
         let known = loadIndex(s)
         let books = files.filter { ReaderMeta.isBook($0.lpath) }.map { f -> DeviceBook in
-            let k = known[f.lpath]
+            let k = known[f.lpath.lowercased()]
             let (title, authors) = (k?.title).flatMap { $0.isEmpty ? nil : ($0, k?.authors ?? []) } ?? readTitle(s, f.lpath, f.size)
             return DeviceBook(title: title, authors: authors, path: f.lpath, lpath: f.lpath, uuid: k?.uuid ?? "", size: f.size)
         }
@@ -654,17 +660,17 @@ enum ReaderOps {
         if !old.isEmpty {
             log("Replacing \(old.count) older cop\(old.count == 1 ? "y" : "ies")…")
             try removeFiles(s, old)
-            for lp in old { ours[lp] = nil }
+            for lp in old { ours[lp.lowercased()] = nil }
         }
-        var present = Set(books.map(\.lpath)).subtracting(old)
+        var present = Set(books.map { $0.lpath.lowercased() }).subtracting(old.map { $0.lowercased() })
         for (i, it) in items.enumerated() {
             let e = it.file.pathExtension.lowercased()
             let lpath = "\(bookDir(s.kind))\(safeName(it.title)) - \(it.uuid.prefix(8).lowercased()).\(e)"
             log("Copying \(i + 1) of \(items.count) to \(s.name)…")
             try s.put(it.file, as: lpath)
             if s.kind.hasPrefix("kindle"), ReaderMeta.mobiExts.contains(e) { kindleThumbnail(s, file: it.file, cover: it.cover) }
-            ours[lpath] = Entry(title: it.title, authors: it.authors, uuid: it.uuid)
-            present.insert(lpath)
+            ours[lpath.lowercased()] = Entry(title: it.title, authors: it.authors, uuid: it.uuid)
+            present.insert(lpath.lowercased())
         }
         saveIndex(s, ours.filter { present.contains($0.key) })
         return items.count
@@ -681,8 +687,8 @@ enum ReaderOps {
     static func delete(_ s: ReaderStorage, _ lpaths: [String]) throws {
         try removeFiles(s, lpaths)
         var ours = loadIndex(s)
-        for lp in lpaths { ours[lp] = nil }
-        let present = Set(try s.files().map(\.lpath))
+        for lp in lpaths { ours[lp.lowercased()] = nil }
+        let present = Set(try s.files().map { $0.lpath.lowercased() })
         saveIndex(s, ours.filter { present.contains($0.key) })
     }
 
@@ -729,7 +735,7 @@ final class ReaderLink: @unchecked Sendable {
         do {
             let files = try s.files()
             let books = ReaderOps.listBooks(s, files: files)
-            let koreader = s.kind.hasPrefix("kindle") && files.contains { $0.lpath.lowercased().hasPrefix("koreader/") }
+            let koreader = s.kind.hasPrefix("kindle") && s.exists("koreader")
             let (total, free) = s.space()
             return Devices.ScriptResult(status: "ok", name: s.name, kind: s.kind, driver: String(describing: type(of: s)),
                                         formats: ReaderOps.formats(s.kind, koreader: koreader), total: total, free: free, books: books)

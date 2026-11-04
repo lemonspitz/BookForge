@@ -4,7 +4,7 @@ import ctypes, os, re, threading
 from concurrent.futures import ThreadPoolExecutor
 from ctypes import POINTER, c_int8, c_uint, c_uint16, c_uint32, c_ubyte, c_ulong, c_ushort, c_void_p, c_wchar_p, cast, pointer
 
-from .meta import NOT_BOOKS
+from .meta import skip_folder
 
 # USB vendor ids of e-reader makers (the device id contains "vid_xxxx")
 READER_VENDORS = {'1949': 'Kindle', '2237': 'Kobo eReader', 'fdd': 'PocketBook', '2207': 'Onyx Boox'}
@@ -106,17 +106,17 @@ def detect():
 
 
 def open_storage(pnp, label):
-    from .detect import Busy, kind_of
+    from .detect import Busy, clean_name, kind_from
     try:
         dev = call(WPDDevice, pnp)
     except Exception as e:
         raise Busy(label) from e
-    name = dev.model or dev.friendly or label
+    name = clean_name(dev.model or dev.friendly or label)
     st = call(dev.storages)
     if not st:
         raise Busy(name)
     s = next((x for x in st if 'internal' in x[1].lower()), st[0])
-    return WPDStorage(dev, s, name, kind_of(name, dev.manufacturer, label))
+    return WPDStorage(dev, s, name, kind_from(name, dev.manufacturer, label))
 
 
 class WPDDevice:
@@ -283,7 +283,7 @@ class WPDStorage:
             for name, (i, size, is_dir) in list(self._entries(folder).items()):
                 lp = (folder + '/' if folder else '') + name
                 if is_dir:
-                    if not name.startswith('.') and not any((lp + '/').lower().startswith(p) for p in NOT_BOOKS):
+                    if not skip_folder(lp):
                         walk(lp)
                 else:
                     out.append((lp, size))

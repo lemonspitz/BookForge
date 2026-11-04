@@ -3,7 +3,7 @@ and whether it's locked with DRM."""
 import os, re, struct
 
 BOOK_EXTS = {'epub', 'kepub', 'azw', 'azw3', 'azw4', 'kfx', 'mobi', 'prc', 'pdb', 'pdf', 'fb2', 'fbz', 'cbz', 'cbr',
-             'djvu', 'rtf', 'docx', 'lit', 'lrf', 'txt'}
+             'djvu', 'rtf', 'docx', 'lit', 'lrf'}
 NOT_BOOKS = ('system/', 'koreader/', 'kmc/', 'extensions/', 'documents/dictionaries/', '.kobo/', '.adobe-digital-editions/')
 STORE_ID = re.compile(r'[_-](asin_)?(B0[0-9A-Z]{8})([_.-].*)?$', re.I)
 
@@ -15,11 +15,17 @@ def ext(lpath):
 def is_book(lpath):
     """Readers hold notes, dictionaries and their own software too; keep only e-books outside system folders."""
     lp = lpath.replace('\\', '/').lower()
-    if ext(lp) not in BOOK_EXTS or ext(lp) == 'txt' and not lp.startswith('documents/'):
+    if ext(lp) not in BOOK_EXTS:
         return False
-    if lp.startswith('.') or '/.' in lp:
+    if lp.startswith('.') or '/.' in lp or '.sdr/' in lp:
         return False
     return not any(lp.startswith(p) for p in NOT_BOOKS)
+
+
+def skip_folder(lpath):
+    """Folders that never hold books: hidden ones, the reader's system folders, and books' .sdr side folders."""
+    lp = lpath.lower()
+    return lp.rsplit('/', 1)[-1].startswith('.') or lp.endswith('.sdr') or any((lp + '/').startswith(p) for p in NOT_BOOKS)
 
 
 def from_filename(lpath):

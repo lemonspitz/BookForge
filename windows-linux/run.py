@@ -46,7 +46,7 @@ def cli(args):
             for b in d['books']:
                 print('  %s — %s (%s) uuid %s' % (b['title'], ', '.join(b['authors']), b['lpath'], b['uuid']))
         return 0
-    for flag in ('--import-new', '--send-new'):
+    for flag in ('--import-new', '--send-new', '--plan'):
         if flag in args:
             app = QCoreApplication(sys.argv[:1])
             from bookforge import devices, library
@@ -59,6 +59,12 @@ def cli(args):
             both = [b for b in L.books if D.match(b)]
             print('%s: %d in both, %d only in the library, %d only on the reader'
                   % (D.reader['name'], len(both), len(L.books) - len(both), len(D.only_on_reader())))
+            if flag == '--plan':
+                # what Import and Send would copy, without copying anything
+                print('To import:', ' | '.join(devices.display_title(b) for b in D.to_import()) or 'nothing')
+                print('To send:', ' | '.join(b['title'] for b in D.to_send()) or 'nothing')
+                print('Left on the reader (store books):', sum(1 for b in D.only_on_reader() if D.likely_locked(b)))
+                return 0
             titles = [devices.display_title(b) for b in D.to_import()] if flag == '--import-new' else [b['title'] for b in D.to_send()]
             print('To import:' if flag == '--import-new' else 'To send:', ' | '.join(titles) or 'nothing')
             (D.import_new if flag == '--import-new' else D.send_new)()

@@ -11,14 +11,15 @@ CALIBRE = ('metadata.calibre', '.metadata.calibre')
 
 
 def load(storage):
-    """{lpath: dict(title, authors, uuid)} from the reader's index files (ours wins)."""
+    """{lowercased lpath: dict(title, authors, uuid)} from the reader's index files (ours wins). Calibre writes
+    MTP paths in lowercase, so paths are compared without case."""
     known = {}
     for name in CALIBRE:
         data = storage.read_small(name)
         if data:
             try:
                 for b in json.loads(data.decode('utf-8')):
-                    lp = (b.get('lpath') or '').replace('\\', '/')
+                    lp = (b.get('lpath') or '').replace('\\', '/').lower()
                     if lp:
                         known[lp] = dict(title=b.get('title') or '', authors=b.get('authors') or [], uuid=b.get('uuid') or '')
             except Exception:
@@ -27,7 +28,7 @@ def load(storage):
     if data:
         try:
             for lp, b in json.loads(data.decode('utf-8')).items():
-                known[lp] = b
+                known[lp.lower()] = b
         except Exception:
             pass
     return known

@@ -22,6 +22,18 @@ def kind_of(*names):
     return 'generic'
 
 
+def kind_from(name, manufacturer, fallback):
+    """The reader's own model name decides; libmtp's device table can be wrong (it calls a Paperwhite a Scribe)."""
+    k = kind_of(name, manufacturer)
+    return k if k != 'generic' else kind_of(fallback)
+
+
+def clean_name(name):
+    """'Kindle Paperwhite Signature Edition GN433W11534501' -> without the serial number."""
+    import re
+    return re.sub(r'\s+[A-Z0-9]{10,}$', '', name.strip()) or name
+
+
 def _has(root, *parts):
     """Case-insensitive check that root/parts exists."""
     cur = root
@@ -124,13 +136,13 @@ def open_reader(key, label):
         dev = libmtp.open_device(where)
         if dev is None:
             raise Busy(label)
-        name = dev.model or dev.friendly or label
+        name = clean_name(dev.model or dev.friendly or label)
         storages = dev.storages()
         if not storages:
             raise Busy(name)
         # the storage with the books: internal storage first
         st = next((s for s in storages if 'internal' in s[1].lower()), storages[0])
-        return libmtp.MTPStorage(dev, st, name, kind_of(name, dev.manufacturer, label))
+        return libmtp.MTPStorage(dev, st, name, kind_from(name, dev.manufacturer, label))
     if kind_ == 'wpd':
         from . import wpd
         try:

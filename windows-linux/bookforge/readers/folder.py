@@ -2,7 +2,7 @@
 Linux desktop has already mounted (gvfs)."""
 import os, shutil, sys
 
-from .meta import NOT_BOOKS
+from .meta import skip_folder
 
 
 class FolderStorage:
@@ -28,8 +28,7 @@ class FolderStorage:
         for dirpath, dirs, files in os.walk(self.root):
             rel = os.path.relpath(dirpath, self.root).replace(os.sep, '/')
             rel = '' if rel == '.' else rel + '/'
-            dirs[:] = [d for d in dirs if not d.startswith('.') and not any(
-                (rel + d + '/').lower().startswith(p) for p in NOT_BOOKS)]
+            dirs[:] = [d for d in dirs if not skip_folder(rel + d)]
             for f in files:
                 try:
                     out.append((rel + f, os.path.getsize(os.path.join(dirpath, f))))

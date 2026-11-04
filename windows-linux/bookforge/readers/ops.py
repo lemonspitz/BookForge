@@ -38,7 +38,7 @@ def list_books(storage):
     for lpath, size in storage.files():
         if not meta.is_book(lpath):
             continue
-        k = known.get(lpath) or {}
+        k = known.get(lpath.lower()) or {}
         title, authors = k.get('title'), k.get('authors')
         if not title:
             title, authors = read_title(storage, lpath, size)
@@ -139,9 +139,9 @@ def upload(storage, items, log):
         log('Replacing %d older cop%s…' % (len(old), 'y' if len(old) == 1 else 'ies'))
         remove_files(storage, old)
         for lp in old:
-            ours.pop(lp, None)
+            ours.pop(lp.lower(), None)
     folder = book_dir(storage.kind)
-    present = {b['lpath'] for b in books} - set(old)
+    present = {b['lpath'].lower() for b in books} - {lp.lower() for lp in old}
     for i, it in enumerate(items):
         e = it['file'].rsplit('.', 1)[-1].lower()
         lpath = '%s%s - %s.%s' % (folder, safe_name(it['title']), it['uuid'][:8].lower(), e)
@@ -149,8 +149,8 @@ def upload(storage, items, log):
         storage.put(it['file'], lpath)
         if storage.kind.startswith('kindle') and e in ('azw3', 'mobi', 'azw'):
             kindle_thumbnail(storage, it['file'], it.get('cover'))
-        ours[lpath] = dict(title=it['title'], authors=it['authors'], uuid=it['uuid'])
-        present.add(lpath)
+        ours[lpath.lower()] = dict(title=it['title'], authors=it['authors'], uuid=it['uuid'])
+        present.add(lpath.lower())
     index.save(storage, {lp: v for lp, v in ours.items() if lp in present})
     return len(items)
 
@@ -174,8 +174,8 @@ def delete(storage, lpaths):
     remove_files(storage, lpaths)
     ours = index.load(storage)
     for lp in lpaths:
-        ours.pop(lp, None)
-    present = {lp for lp, _ in storage.files()}
+        ours.pop(lp.lower(), None)
+    present = {lp.lower() for lp, _ in storage.files()}
     index.save(storage, {lp: v for lp, v in ours.items() if lp in present})
     return len(lpaths)
 

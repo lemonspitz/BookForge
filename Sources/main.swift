@@ -115,7 +115,8 @@ if CommandLine.arguments.contains("--device") {
 }
 
 // `BookForge --import-new` and `--send-new` do what the device screen's one-click Import and Send buttons do.
-for flag in ["--import-new", "--send-new"] where CommandLine.arguments.contains(flag) {
+// `BookForge --plan` shows what Import and Send would copy, without copying anything.
+for flag in ["--import-new", "--send-new", "--plan"] where CommandLine.arguments.contains(flag) {
     Task { @MainActor in
         let devices = Devices.shared, library = Library.shared
         await library.loading?.value
@@ -123,6 +124,13 @@ for flag in ["--import-new", "--send-new"] where CommandLine.arguments.contains(
         guard let reader = devices.reader else { print("No e-reader: \(devices.state)"); exit(1) }
         let both = library.books.filter { devices.match($0) != nil }
         print("\(reader.name): \(both.count) in both, \(library.books.count - both.count) only in the library, \(devices.onlyOnReader.count) only on the reader")
+        if flag == "--plan" {
+            print("To import:", devices.toImport.map(\.displayTitle).joined(separator: " | ").nilIfEmpty ?? "nothing")
+            print("To send:", devices.toSend.map(\.title).joined(separator: " | ").nilIfEmpty ?? "nothing")
+            let locked = devices.onlyOnReader.filter { devices.likelyLocked($0) }
+            print("Left on the reader (store books):", locked.count)
+            exit(0)
+        }
         let titles = flag == "--import-new" ? devices.toImport.map(\.displayTitle) : devices.toSend.map(\.title)
         print(flag == "--import-new" ? "To import:" : "To send:", titles.isEmpty ? "nothing" : titles.joined(separator: " | "))
         if flag == "--import-new" { await devices.importNew() } else { await devices.sendNew() }
@@ -133,3 +141,7 @@ for flag in ["--import-new", "--send-new"] where CommandLine.arguments.contains(
 }
 
 BookForgeApp.main()
+
+extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
