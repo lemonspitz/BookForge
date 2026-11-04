@@ -137,7 +137,12 @@ class DeviceView(QWidget):
         self.empty_text = QLabel(alignment=Qt.AlignmentFlag.AlignCenter, wordWrap=True)
         self.empty_text.setFixedWidth(480)      # a fixed width lets the wrapped text get its full height
         ev.addWidget(self.empty_title)
-        ev.addWidget(self.empty_text, 0, Qt.AlignmentFlag.AlignCenter)
+        # centred by stretches, not an alignment flag: with a flag the layout ignores the wrapped text's height
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(self.empty_text)
+        row.addStretch(1)
+        ev.addLayout(row)
         br = QHBoxLayout()
         br.addStretch(1)
         self.empty_b1 = QPushButton()
