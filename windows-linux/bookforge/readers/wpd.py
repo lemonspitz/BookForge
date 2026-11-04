@@ -14,8 +14,14 @@ _api = _types = None
 
 
 def _init():
+    import sys
+    # comtypes sets COM up for the thread that first imports it, in the mode named here (multithreaded)
+    sys.coinit_flags = 0
     import comtypes
-    comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
+    try:
+        comtypes.CoInitializeEx(comtypes.COINIT_MULTITHREADED)
+    except OSError:
+        pass        # already set up on this thread
 
 
 def call(fn, *a):

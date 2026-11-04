@@ -6,7 +6,8 @@ out = os.path.abspath(sys.argv[1])
 os.makedirs(out, exist_ok=True)
 lib_dir = tempfile.mkdtemp(prefix='bf-smoke-')
 os.environ['BOOKFORGE_LIBRARY'] = lib_dir
-os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+if sys.platform != 'win32':
+    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')     # Windows' off-screen mode has no fonts
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 # a two-chapter sample PDF, drawn with Pillow (no fonts needed)

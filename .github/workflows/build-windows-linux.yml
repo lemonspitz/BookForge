@@ -41,23 +41,27 @@ jobs:
         if: runner.os == 'Windows'
         run: python -c "import comtypes.client as c; c.GetModule('portabledeviceapi.dll'); c.GetModule('portabledevicetypes.dll'); import comtypes.gen.PortableDeviceApiLib, comtypes.gen.PortableDeviceTypesLib; print('ok')"
 
+      - name: Windows Portable Devices check
+        if: runner.os == 'Windows'
+        run: python -c "import sys; sys.path.insert(0, '.'); from bookforge.readers import wpd; print('devices:', wpd.call(wpd._devices)); print('readers:', wpd.detect())"
+
       - name: Check from source
         env:
-          QT_QPA_PLATFORM: offscreen
           QTWEBENGINE_CHROMIUM_FLAGS: --no-sandbox
         run: |
-          python run.py --device; cat "$(python -c 'import sys; sys.path.insert(0, "."); from bookforge.util import cache_dir; print(cache_dir())')/book-forge.log" 2>/dev/null || true
+          [ "$RUNNER_OS" = Linux ] && export QT_QPA_PLATFORM=offscreen
+          python run.py --device
           python tests/smoke.py ../screenshots-${{ matrix.platform }}
 
       - name: Package
         run: pyinstaller --noconfirm --clean bookforge.spec
 
       - name: Check the package
-        env:
-          QT_QPA_PLATFORM: offscreen
         run: |
-          if [ "$RUNNER_OS" = Windows ]; then "dist/Book Forge/Book Forge.exe" --device; sleep 5; else "dist/Book Forge/book-forge" --device; fi
-          cat "$(python -c 'import sys; sys.path.insert(0, "."); from bookforge.util import cache_dir; print(cache_dir())')/book-forge.log" | tail -5
+          if [ "$RUNNER_OS" = Windows ]; then "dist/Book Forge/Book Forge.exe" --device; sleep 5; else QT_QPA_PLATFORM=offscreen "dist/Book Forge/book-forge" --device; fi
+          log="$(python -c 'import sys; sys.path.insert(0, "."); from bookforge.util import cache_dir; print(cache_dir())')/book-forge.log"
+          if [ -f "$log" ]; then tail -20 "$log"; fi
+          if [ -f "$log" ] && grep -q Traceback "$log"; then echo "::error::the packaged app logged an error"; exit 1; fi
 
       - name: Zip (Windows)
         if: runner.os == 'Windows'
