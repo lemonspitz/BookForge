@@ -1,6 +1,6 @@
 # Book Forge
 
-A macOS app for your e-book library: it reads EPUBs and PDFs, turns PDF books into clean EPUBs, translates them between Indonesian, English and Japanese, and syncs them to a Kindle or other e-reader with covers showing.
+A macOS/Windows/Linux app for your e-book library: it reads EPUBs and PDFs, turns PDF books into clean EPUBs, translates them between Indonesian, English and Japanese, and syncs them to a Kindle or other e-reader with covers showing.
 
 ## What it does
 
