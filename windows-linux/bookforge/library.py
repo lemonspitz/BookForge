@@ -41,8 +41,8 @@ def guess_from_filename(path):
 
 
 def normalize_language(code):
-    c = re.split(r'[-_]', (code or '').lower())[0]
-    return {'in': 'id', 'ind': 'id', 'eng': 'en', 'jp': 'ja', 'jpn': 'ja'}.get(c, c[:2])
+    from . import languages
+    return languages.normalize(code)
 
 
 def file_name(title, author):

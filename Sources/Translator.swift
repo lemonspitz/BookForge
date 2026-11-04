@@ -5,9 +5,6 @@ import Translation
 enum Translator {
     enum Engine: String { case claude, apple }
 
-    static let names = StyleGuides.languageNames
-    /// Shown after the title so a translated copy doesn't replace the original on the Kindle.
-    static let titleSuffix = ["id": "Bahasa Indonesia", "en": "English", "ja": "日本語"]
 
     struct Report {
         var paragraphs = 0
@@ -24,9 +21,9 @@ enum Translator {
         switch await LanguageAvailability().status(from: src, to: dst) {
         case .installed: break
         case .supported:
-            throw Shell.Failure(message: "Download \(names[from] ?? from) and \(names[to] ?? to) first: System Settings › General › Language & Region › Translation Languages.")
+            throw Shell.Failure(message: "Download \(Languages.name(from)) and \(Languages.name(to)) first: System Settings › General › Language & Region › Translation Languages.")
         default:
-            throw Shell.Failure(message: "Translating \(names[from] ?? from) to \(names[to] ?? to) isn't supported on this Mac.")
+            throw Shell.Failure(message: "Translating \(Languages.name(from)) to \(Languages.name(to)) isn't supported on this Mac.")
         }
         let session = TranslationSession(installedSource: src, target: dst)
         var out = texts
@@ -128,13 +125,13 @@ enum Translator {
         defer { try? FileManager.default.removeItem(at: tmp) }
         guard let opfURL = opfPath(in: tmp), let opf = try? XMLDocument(contentsOf: opfURL, options: [.nodePreserveAll]) else { return nil }
         return (try? opf.nodes(forXPath: "//*[local-name()='language']").first?.stringValue).flatMap { $0 }
-            .map { String($0.prefix(2)).lowercased() }
+            .map(Languages.normalize)
     }
 
     static func translate(epub: URL, from: String, to: String, output: URL,
                           engine: Engine, apiKey: String?,
                           status: @escaping @Sendable (String, Double) -> Void) async throws -> Report {
-        guard from != to else { throw Shell.Failure(message: "The book is already in \(names[to] ?? to).") }
+        guard from != to else { throw Shell.Failure(message: "The book is already in \(Languages.name(to)).") }
         let fm = FileManager.default
         let tmp = try unzip(epub)
         defer { try? fm.removeItem(at: tmp) }
@@ -241,15 +238,19 @@ enum Translator {
             report.fellBack += broken.count
         }
         for (f, doc) in docs {
+            relabel(doc, from: from, to: to)
             // XMLDocument writes "<!DOCTYPE html" without its closing ">"
             let xml = doc.xmlString(options: [.nodePreserveAll])
                 .replacingOccurrences(of: #"<!DOCTYPE html\s*(?=<)"#, with: "<!DOCTYPE html>\n", options: .regularExpression)
             try xml.write(to: f, atomically: true, encoding: .utf8)
         }
-        if let (f, doc) = ncx { try doc.xmlData(options: [.nodePreserveAll]).write(to: f) }
+        if let (f, doc) = ncx {
+            relabel(doc, from: from, to: to)
+            try doc.xmlData(options: [.nodePreserveAll]).write(to: f)
+        }
         for n in (try? opf.nodes(forXPath: "//*[local-name()='language']")) ?? [] { n.stringValue = to }
         if let t = (try? opf.nodes(forXPath: "//*[local-name()='title']"))?.first {
-            t.stringValue = "\(t.stringValue ?? "") (\(titleSuffix[to] ?? to))"
+            t.stringValue = "\(t.stringValue ?? "") (\(Languages[to]?.native ?? to))"
         }
         try opf.xmlData(options: [.nodePreserveAll]).write(to: opfURL)
 
@@ -260,6 +261,20 @@ enum Translator {
     }
 
     // MARK: helpers
+
+    /// Marks the pages as the new language: e-readers choose fonts by it (Chinese, Japanese and Thai above all).
+    private static func relabel(_ doc: XMLDocument, from: String, to: String) {
+        guard let root = doc.rootElement() else { return }
+        for case let el as XMLElement in (try? doc.nodes(forXPath: "//*")) ?? [] {
+            for name in ["xml:lang", "lang"] {
+                let v = el.attribute(forName: name)?.stringValue
+                if (el == root && (v != nil || name == "xml:lang")) || (v.map { Languages.normalize($0) == from } ?? false) {
+                    el.removeAttribute(forName: name)
+                    el.addAttribute(XMLNode.attribute(withName: name, stringValue: to) as! XMLNode)
+                }
+            }
+        }
+    }
 
     private static func unzip(_ epub: URL) throws -> URL {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("bookforge-tr-\(UUID().uuidString)")

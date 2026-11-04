@@ -3,10 +3,8 @@ import Foundation
 /// How each language's style maps onto the target language. These go into the translator's
 /// system prompt together with the style sheet learned from the book itself.
 enum StyleGuides {
-    static let languageNames = ["id": "Indonesian", "en": "English", "ja": "Japanese"]
-
     static func base(from: String, to: String) -> String {
-        let src = languageNames[from] ?? from, dst = languageNames[to] ?? to
+        let src = Languages.prose(from), dst = Languages.prose(to)
         return """
             You are an experienced literary translator of fiction from \(src) into \(dst). \
             Translate for meaning, voice and effect, so the result reads like a published \(dst) novel, not a word-for-word gloss.
@@ -95,7 +93,8 @@ enum StyleGuides {
                 - 「」 becomes “ ”.
                 """
         default:
-            return ""
+            // any other pair: how to read the source language, then how to write the target
+            return [Languages[from]?.reading, Languages[to]?.writing].compactMap { $0 }.joined(separator: "\n\n")
         }
     }
 }

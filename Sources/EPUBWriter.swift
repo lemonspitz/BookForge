@@ -40,8 +40,8 @@ struct TextFixer {
                 } else {
                     out = String(out.dropLast()) + next  // typesetting hyphen
                 }
-            } else if let a = out.last, let b = next.first, a.isCJK || b.isCJK {
-                out += next   // Japanese/Chinese lines join without a space
+            } else if let a = out.last, let b = next.first, a.joinsWithoutSpace || b.joinsWithoutSpace {
+                out += next   // Japanese, Chinese and Thai lines join without a space
             } else {
                 out += " " + next
             }
@@ -85,7 +85,11 @@ struct TextFixer {
 extension Character {
     var isCJK: Bool {
         guard let v = unicodeScalars.first?.value else { return false }
-        return (0x3000...0x30FF).contains(v) || (0x4E00...0x9FFF).contains(v) || (0xFF00...0xFFEF).contains(v)
+        return (0x3000...0x30FF).contains(v) || (0x3400...0x4DBF).contains(v) || (0x4E00...0x9FFF).contains(v) || (0xFF00...0xFFEF).contains(v)
+    }
+    /// Thai, like Chinese and Japanese, puts no spaces between words.
+    var joinsWithoutSpace: Bool {
+        isCJK || (unicodeScalars.first.map { (0x0E00...0x0E7F).contains($0.value) } ?? false)
     }
 }
 
@@ -95,11 +99,13 @@ struct Labels {
     let page: (Int) -> String
 
     init(_ lang: String) {
-        switch lang {
-        case "id": (cover, backCover, contents, opening, page) = ("Sampul", "Sampul Belakang", "Daftar Isi", "Pembuka", { "Halaman \($0)" })
-        case "ja": (cover, backCover, contents, opening, page) = ("表紙", "裏表紙", "目次", "はじめに", { "\($0)ページ" })
-        default: (cover, backCover, contents, opening, page) = ("Cover", "Back Cover", "Contents", "Opening", { "Page \($0)" })
-        }
+        let l = (Languages[lang] ?? Languages["en"])?.labels
+        cover = l?.cover ?? "Cover"
+        backCover = l?.backCover ?? "Back Cover"
+        contents = l?.contents ?? "Contents"
+        opening = l?.opening ?? "Opening"
+        let format = l?.page ?? "Page %d"
+        page = { String(format: format, $0) }
     }
 }
 

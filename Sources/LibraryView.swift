@@ -444,10 +444,8 @@ private struct EditBookSheet: View {
                 TextField("Title", text: $book.title)
                 TextField("Author", text: $book.author)
                 Picker("Language", selection: $book.language) {
-                    Text("Indonesian").tag("id")
-                    Text("English").tag("en")
-                    Text("Japanese").tag("ja")
-                    if !["id", "en", "ja"].contains(book.language) {
+                    ForEach(Languages.all, id: \.code) { Text($0.name).tag($0.code) }
+                    if !Languages.codes.contains(book.language) {
                         Text(book.language.isEmpty ? "Unknown" : book.language).tag(book.language)
                     }
                 }

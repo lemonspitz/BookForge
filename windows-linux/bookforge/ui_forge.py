@@ -6,11 +6,11 @@ from .qt import (QButtonGroup, QCheckBox, QComboBox, QFileDialog, QFormLayout, Q
                      QLabel, QLineEdit, QMessageBox, QPixmap, QProgressBar, QPushButton, QRadioButton, QScrollArea,
                      QSpinBox, QTextEdit, Qt, QToolButton, QVBoxLayout, QWidget)
 
-from . import devices as dev
+from . import devices as dev, languages
 from . import library as lib
 from .util import Failure, Poster, in_background, load_api_key, load_secret, reveal, save_api_key, save_secret, settings
 
-LANGS = (('id', 'Indonesian'), ('en', 'English'), ('ja', 'Japanese'))
+LANGS = languages.CHOICES
 SMTP_ACCOUNT = 'smtp-password'
 
 
@@ -351,7 +351,7 @@ class ForgeView(QWidget):
             language = (book['language'] if book else language) or 'en'
             self.set_status('EPUB ready to translate or send to your e-reader.')
         if not self.is_pdf or language:
-            i = self.lang_c.findData(language if language in ('id', 'en', 'ja') else 'en')
+            i = self.lang_c.findData(languages.known(languages.normalize(language)))
             self.lang_c.setCurrentIndex(i)
         self.language_changed()
         if self.target() == self.lang():
@@ -416,7 +416,7 @@ class ForgeView(QWidget):
             if r != QMessageBox.StandardButton.Ok:
                 return
         src, frm, to = self.epub, self.lang(), self.target()
-        out = self.output_path('%s (%s)' % (self.title_e.text().strip(), translate.TITLE_SUFFIX.get(to, to)))
+        out = self.output_path('%s (%s)' % (self.title_e.text().strip(), (languages.get(to) or {}).get('native', to)))
         self.busy = True
         self.style_sheet = ''
         self.update_ui()

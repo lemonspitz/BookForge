@@ -38,9 +38,10 @@ struct ClaudeTranslator {
 
     /// Rough cost before starting: source text in, translation (plus some reasoning) out.
     static func estimate(sourceChars: Int, from: String, to: String) -> Double {
-        let charsPerToken = ["ja": 1.3][from] ?? 3.6
-        let srcTokens = Double(sourceChars) / charsPerToken
-        let expansion = to == "ja" ? (from == "ja" ? 1.0 : 1.4) : (from == "ja" ? 0.9 : 1.1)
+        let srcTokens = Double(sourceChars) / (Languages[from]?.charsPerToken ?? 3.6)
+        // the same text takes more tokens in some languages
+        let ratio = (Languages[to]?.weight ?? 1) / (Languages[from]?.weight ?? 1)
+        let expansion = ratio == 1 ? 1.1 : max(0.9, ratio)
         let chunks = Double(sourceChars) / 3000 + 1
         let input = srcTokens * 1.25 + chunks * 600          // text + context + prompt per batch
         let cached = chunks * 3000                           // style guide + sheet, read from cache
@@ -71,13 +72,14 @@ struct ClaudeTranslator {
                 "notes": ["type": "string", "description": "Anything else a translator must keep consistent."],
             ],
         ]
-        let src = StyleGuides.languageNames[from] ?? from, dst = StyleGuides.languageNames[to] ?? to
+        let src = Languages.prose(from), dst = Languages.prose(to)
+        let names = Languages[to]?.names ?? ""
         let system = StyleGuides.base(from: from, to: to) + "\n\n" + StyleGuides.pair(from: from, to: to)
         let prompt = """
             Below are excerpts from across a \(src) novel that is about to be translated into \(dst). \
             Before translating, study them and write a translation style sheet: the narrative voice; the dialogue register; \
             every recurring character's way of speaking and how to voice them in \(dst); and a glossary of names, titles, places \
-            and recurring terms with the exact \(dst) rendering to use every time (for Japanese, katakana for names). Be specific and concise.
+            and recurring terms with the exact \(dst) rendering to use every time\(names.isEmpty ? "" : " (\(names))"). Be specific and concise.
 
             \(samples.enumerated().map { "<excerpt \($0 + 1)>\n\($1)\n</excerpt>" }.joined(separator: "\n\n"))
             """

@@ -3,6 +3,7 @@ for scanned pages. Coordinates are normalised 0…1 with y growing downwards."""
 import io, os, re, subprocess, tempfile
 from concurrent.futures import ThreadPoolExecutor
 
+from . import languages
 from .library import PDFIUM, pdf_info, render_page
 from .util import Failure, no_window, tesseract
 
@@ -38,7 +39,6 @@ class PageText:
         self.lines = lines
 
 
-TESS_LANGS = {'id': ['ind', 'eng'], 'en': ['eng'], 'ja': ['jpn', 'eng']}
 
 
 def page_count(pdf):
@@ -52,7 +52,9 @@ def text_layers(pdf):
 
 
 def _text_layers(pdf):
+    """Builds lines from single characters: pdfium's text runs break at accents and Thai vowel marks."""
     import pypdfium2 as pdfium
+    import pypdfium2.raw as raw
     out = {}
     doc = pdfium.PdfDocument(pdf)
     try:
@@ -60,12 +62,33 @@ def _text_layers(pdf):
             page = doc[i]
             W, H = page.get_size()
             tp = page.get_textpage()
-            lines = []
-            for k in range(tp.count_rects()):
-                l, b, r, t = tp.get_rect(k)
-                s = tp.get_text_bounded(l, b, r, t).replace('\r', ' ').replace('\n', ' ').strip()
-                if s:
-                    lines.append(Line(s, l / W, r / W, (H - t) / H, (H - b) / H))
+            lines, units, box = [], [], None
+
+            def flush():
+                # UTF-16 units (characters beyond the BMP arrive as surrogate pairs)
+                text = ''.join(units).encode('utf-16-le', 'surrogatepass').decode('utf-16-le', 'replace')
+                text = ' '.join(text.split())
+                if text and box:
+                    l, b, r, t = box
+                    lines.append(Line(text, l / W, r / W, (H - t) / H, (H - b) / H))
+
+            for k in range(tp.count_chars()):
+                u = raw.FPDFText_GetUnicode(tp.raw, k)
+                if u in (10, 13):                   # pdfium's line breaks
+                    if units:
+                        flush()
+                    units, box = [], None
+                    continue
+                if u == 0 or u == 0xFFFE:
+                    continue
+                units.append(chr(u))
+                if raw.FPDFText_IsGenerated(tp.raw, k) or chr(u).isspace():
+                    continue
+                l, b, r, t = tp.get_charbox(k)
+                if r > l and t > b:
+                    box = (l, b, r, t) if box is None else (min(box[0], l), min(box[1], b), max(box[2], r), max(box[3], t))
+            if units:
+                flush()
             tp.close()
             page.close()
             if sum(len(x.text) for x in lines) > 40:
@@ -84,25 +107,31 @@ def ocr_languages(language):
     exe = tesseract()
     if not exe:
         raise Failure('This PDF is scanned, so it has to be read with text recognition. Install Tesseract OCR '
-                      '(Windows: github.com/UB-Mannheim/tesseract/wiki, choosing the Indonesian and Japanese languages; '
-                      'Linux: the tesseract-ocr, tesseract-ocr-ind and tesseract-ocr-jpn packages), then try again.')
+                      '(Windows: github.com/UB-Mannheim/tesseract/wiki, choosing the languages your books are in; '
+                      'Linux: the tesseract-ocr package and one per language, such as tesseract-ocr-ind, -jpn, -kor, '
+                      '-chi-sim, -chi-tra, -tha or -vie), then try again.')
     if _langs_cache is None:
         try:
             r = subprocess.run([exe, '--list-langs'], capture_output=True, text=True, **no_window())
             _langs_cache = set(l.strip() for l in (r.stdout + r.stderr).splitlines()[1:] if l.strip())
         except Exception:
             _langs_cache = set()
-    want = TESS_LANGS.get(language, ['eng'])
+    want = (languages.get(language) or {}).get('tesseract') or ['eng']
     have = [l for l in want if not _langs_cache or l in _langs_cache]
     if not have:
         raise Failure("Tesseract doesn't have the %s language installed. Add it (the “%s” language data) and try again."
-                      % ({'id': 'Indonesian', 'ja': 'Japanese'}.get(language, 'English'), want[0]))
+                      % (languages.name(language) if languages.get(language) else 'English', want[0]))
     return '+'.join(have)
 
 
 def is_cjk(c):
     v = ord(c)
-    return 0x3000 <= v <= 0x30FF or 0x4E00 <= v <= 0x9FFF or 0xFF00 <= v <= 0xFFEF
+    return 0x3000 <= v <= 0x30FF or 0x3400 <= v <= 0x4DBF or 0x4E00 <= v <= 0x9FFF or 0xFF00 <= v <= 0xFFEF
+
+
+def joins_without_space(c):
+    """Thai, like Chinese and Japanese, puts no spaces between words."""
+    return is_cjk(c) or 0x0E00 <= ord(c) <= 0x0E7F
 
 
 def ocr_image(jpeg, langs):
@@ -148,7 +177,7 @@ def ocr_image(jpeg, langs):
         ws = groups[k]
         text = ''
         for word, *_ in ws:
-            if text and not (is_cjk(text[-1]) and is_cjk(word[0])):
+            if text and not (joins_without_space(text[-1]) and joins_without_space(word[0])):
                 text += ' '
             text += word
         x0 = min(w[1] for w in ws); y0 = min(w[2] for w in ws)

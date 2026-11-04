@@ -1,5 +1,5 @@
 """Starts Book Forge:  python run.py  (the packaged app runs this too).
-Command-line modes (no window):  --import-new, --send-new, --device, --convert in.pdf out.epub [id|en|ja]"""
+Command-line modes (no window):  --import-new, --send-new, --device, --convert in.pdf out.epub [language code, e.g. id, en, ja, ko, zh-Hans, zh-Hant, th, vi]"""
 import os, sys
 
 here = os.path.dirname(os.path.abspath(__file__))

@@ -3,11 +3,13 @@ import datetime, uuid, zipfile
 
 from .library import render_page
 
-LABELS = {
-    'id': ('Sampul', 'Sampul Belakang', 'Daftar Isi', 'Pembuka', 'Halaman %d'),
-    'ja': ('表紙', '裏表紙', '目次', 'はじめに', '%dページ'),
-}
-DEFAULT_LABELS = ('Cover', 'Back Cover', 'Contents', 'Opening', 'Page %d')
+from . import languages
+
+
+def labels(lang):
+    """Fixed page labels in the book's language: cover, back cover, contents, opening, page."""
+    l = (languages.get(lang) or languages.get('en'))['labels']
+    return l['cover'], l['backCover'], l['contents'], l['opening'], l['page']
 
 CSS = """body { font-family: serif; line-height: 1.45; margin: 0 0.4em; }
 p { margin: 0; text-indent: 1.4em; text-align: justify; }
@@ -29,7 +31,7 @@ def esc(s):
 
 def write(blocks, body_end, pdf, title, author, language, out_path, publisher=''):
     lang = language
-    cover_l, back_l, contents_l, opening_l, page_l = LABELS.get(lang, DEFAULT_LABELS)
+    cover_l, back_l, contents_l, opening_l, page_l = labels(lang)
     files = {}          # archive path -> bytes
 
     def page(t, body, cls=''):

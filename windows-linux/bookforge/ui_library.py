@@ -6,7 +6,7 @@ from .qt import (QAbstractItemView, QAction, QActionGroup, QBrush, QColor, QDial
                      QListWidgetItem, QMenu, QMessageBox, QPainter, QPainterPath, QPen, QPushButton, QRectF, QSize,
                      QStyle, QStyledItemDelegate, Qt, QPointF, QToolButton, QVBoxLayout, QWidget, QLinearGradient, QPalette)
 
-from . import devices as dev
+from . import devices as dev, languages
 from . import library as lib
 from .util import reveal, settings
 
@@ -190,9 +190,9 @@ class EditInfo(QDialog):
         self.title = QLineEdit(book['title'])
         self.author = QLineEdit(book['author'])
         self.lang = QComboBox()
-        for code, name in (('id', 'Indonesian'), ('en', 'English'), ('ja', 'Japanese')):
+        for code, name in languages.CHOICES:
             self.lang.addItem(name, code)
-        if book['language'] not in ('id', 'en', 'ja'):
+        if book['language'] not in languages.CODES:
             self.lang.addItem(book['language'] or 'Unknown', book['language'])
         self.lang.setCurrentIndex(self.lang.findData(book['language']))
         f.addRow('Title', self.title)

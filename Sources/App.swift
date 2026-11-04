@@ -74,7 +74,7 @@ final class BookJob {
             title = libraryBook?.title ?? meta.title
             author = libraryBook?.author ?? (meta.author.isEmpty ? guess.author : meta.author)
             language = libraryBook?.language ?? meta.language
-            if !["id", "en", "ja"].contains(language) { language = "en" }
+            language = Languages.known(Languages.normalize(language))
             if translateTo == language { translateTo = "" }
             cover = meta.cover.flatMap { NSImage(data: $0) }
             status = "EPUB ready to translate or send to your e-reader."
@@ -101,7 +101,7 @@ final class BookJob {
         guard let src = source, isPDF, !busy else { return }
         let info = BookInfo(title: title.trimmingCharacters(in: .whitespaces),
                             author: author.trimmingCharacters(in: .whitespaces), language: language)
-        let languages = ["id": ["id-ID", "en-US"], "ja": ["ja-JP", "en-US"]][language] ?? ["en-US"]
+        let languages = Languages[language]?.vision ?? ["en-US"]
         let force = forceOCR
         let out = outputURL(title: info.title)
         phase = .reading
@@ -158,7 +158,7 @@ final class BookJob {
             }
         }
         let target = translateTo, from = language, eng = engine, key = apiKey
-        let out = outputURL(title: "\(title) (\(Translator.titleSuffix[target] ?? target))")
+        let out = outputURL(title: "\(title) (\(Languages[target]?.native ?? target))")
         phase = .translating
         progress = 0
         styleSheet = ""
@@ -311,9 +311,7 @@ struct ForgeView: View {
                     TextField("Title", text: $job.title)
                     TextField("Author", text: $job.author)
                     Picker("Written in", selection: $job.language) {
-                        Text("Indonesian").tag("id")
-                        Text("English").tag("en")
-                        Text("Japanese").tag("ja")
+                        ForEach(Languages.all, id: \.code) { Text($0.name).tag($0.code) }
                     }
                     if job.isPDF {
                         Toggle("Always use text recognition (ignore the PDF's own text)", isOn: $job.forceOCR)
@@ -322,8 +320,8 @@ struct ForgeView: View {
                 Section("Translate") {
                     Picker("Translate to", selection: $job.translateTo) {
                         Text("Don't translate").tag("")
-                        ForEach(["id", "en", "ja"].filter { $0 != job.language }, id: \.self) {
-                            Text(Translator.names[$0]!).tag($0)
+                        ForEach(Languages.codes.filter { $0 != job.language }, id: \.self) {
+                            Text(Languages.name($0)).tag($0)
                         }
                     }
                     if job.translating {

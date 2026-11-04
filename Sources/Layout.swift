@@ -247,6 +247,14 @@ enum Layout {
     static func cleanLine(_ l: Line) -> Line {
         var l = l
         l.text = String(l.text.trimmingCharacters(in: .whitespaces).map { homoglyphs[$0] ?? $0 })
+        // some PDFs map Chinese characters to look-alike Kangxi radicals (⼀ for 一): put the real ones back
+        if l.text.unicodeScalars.contains(where: { (0x2E80...0x2FDF).contains($0.value) }) {
+            l.text = String(String.UnicodeScalarView(l.text.unicodeScalars.flatMap { u in
+                (0x2E80...0x2FDF).contains(u.value) ? Array(String(u).precomposedStringWithCompatibilityMapping.unicodeScalars) : [u]
+            }))
+        }
+        // text recognition reads 一 as a dash between two Chinese characters (第—章)
+        l.text = l.text.replacingOccurrences(of: #"(?<=\p{Han})[—―－ー](?=\p{Han})"#, with: "一", options: .regularExpression)
         return l
     }
 
@@ -254,8 +262,9 @@ enum Layout {
         let s = t.trimmingCharacters(in: .whitespaces)
         guard s.count >= 1, s.count <= 60, let f = s.first else { return false }
         if ornaments.contains(s) { return false }
-        if let l = s.last, ".,;!?\"”’…-".contains(l), !s.hasSuffix("?!") { return false }
-        return f.isUppercase || f.isNumber
+        if let l = s.last, ".,;!?\"”’…-。，、！？：；」』".contains(l), !s.hasSuffix("?!") { return false }
+        // Thai, Chinese, Japanese and Korean have no capitals
+        return f.isUppercase || f.isNumber || (f.isLetter && !f.isCased)
     }
 
     static func prettyHeading(_ t: String) -> String {

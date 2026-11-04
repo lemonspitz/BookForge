@@ -1,0 +1,210 @@
+{
+ "languages": [
+  {
+   "code": "id",
+   "name": "Indonesian",
+   "prose": "Indonesian",
+   "native": "Bahasa Indonesia",
+   "vision": [
+    "id-ID",
+    "en-US"
+   ],
+   "tesseract": [
+    "ind",
+    "eng"
+   ],
+   "labels": {
+    "cover": "Sampul",
+    "backCover": "Sampul Belakang",
+    "contents": "Daftar Isi",
+    "opening": "Pembuka",
+    "page": "Halaman %d"
+   },
+   "charsPerToken": 3.6,
+   "weight": 1.0,
+   "names": "",
+   "reading": "Reading Indonesian:\n- Pronouns signal register: gue/lo is casual, streetwise or young urban speech; aku/kamu is intimate or neutral; saya/Anda is formal.\n- Discourse particles (sih, dong, deh, kok, kan, lho, ya, nih, tuh) carry tone, not content. Never translate them literally.\n- Address terms (Pak, Bu, Mas, Mbak, Bang, Kak) show age and respect. Carry the relationship into the target language’s own forms of address.\n- Subjects and tense are often left out. Infer them from context.\n- Reduplication (anak-anak, pelan-pelan, tiba-tiba) means plurality, intensity or manner, never literal repetition.\n- Foods, places and everyday items with no good equivalent (warung, angkot, ojek) keep their Indonesian names, without explanation.",
+   "writing": "Writing Indonesian:\n- Narration is standard, literary Indonesian (bahasa baku) that still flows naturally.\n- Choose register per character: aku/kamu for peers and intimates, saya/Anda for formal speech, gue/lo only for casual young urban speech when the setting and voice suit it.\n- Address elders and superiors with Bapak/Ibu or Pak/Bu, and use Mas/Mbak/Kak where natural.\n- Use particles (sih, dong, kok, ya, kan) sparingly in dialogue to carry tone.\n- Use di- passive where Indonesian prefers it, and repeat names instead of overusing dia/ia.\n- Keep honorifics used with names (-san, -ssi, Khun) as they appear.\n- Use “ ” for dialogue."
+  },
+  {
+   "code": "en",
+   "name": "English",
+   "prose": "English",
+   "native": "English",
+   "vision": [
+    "en-US"
+   ],
+   "tesseract": [
+    "eng"
+   ],
+   "labels": {
+    "cover": "Cover",
+    "backCover": "Back Cover",
+    "contents": "Contents",
+    "opening": "Opening",
+    "page": "Page %d"
+   },
+   "charsPerToken": 3.6,
+   "weight": 1.0,
+   "names": "",
+   "reading": "Reading English:\n- English “you” carries no politeness level. Decide each relationship’s register (age, rank, closeness) from context and keep it consistent.\n- Contractions, slang and clipped sentences mark casual speech; formal diction marks distance or rank.\n- Replace idioms and wordplay with natural equivalents rather than literal translations.\n- Transliterate names consistently (see the glossary).",
+   "writing": "Writing English:\n- Natural English novel prose. Dialogue in “ ”, nested quotes in ‘ ’.\n- Supply the subjects, articles and tense the source leaves out, inferring them from context. Narrate in past tense unless the book is in present tense.\n- Carry register through word choice, contractions and rhythm, not by sprinkling in slang words.\n- Keep honorific suffixes and titles used with names (-san, -ssi, Pak, Khun) as they appear, consistently. Kinship words used as pronouns become “I” and “you”.\n- Foods, places and cultural items with no good English equivalent stay romanized, in <i>…</i>, without explanation."
+  },
+  {
+   "code": "ja",
+   "name": "Japanese",
+   "prose": "Japanese",
+   "native": "日本語",
+   "vision": [
+    "ja-JP",
+    "en-US"
+   ],
+   "tesseract": [
+    "jpn",
+    "eng"
+   ],
+   "labels": {
+    "cover": "表紙",
+    "backCover": "裏表紙",
+    "contents": "目次",
+    "opening": "はじめに",
+    "page": "%dページ"
+   },
+   "charsPerToken": 1.3,
+   "weight": 1.4,
+   "names": "katakana for foreign names",
+   "reading": "Reading Japanese:\n- Subjects are often left out. Infer them from context.\n- Keigo levels, first-person pronouns and sentence endings (役割語) define each character’s voice and relationships. Carry them into the target language’s own register.\n- Sentence-final particles (ね, よ, じゃん, だろ, かな) carry tone, not content.\n- Honorific suffixes (-san, -kun, -chan, -sama, -senpai) show relationships. Keep them with names in Latin-script languages, or use the target language’s own forms of address.\n- 擬音語 and 擬態語 become natural sound words or vivid verbs.\n- 「」 marks dialogue; 『』 marks nested quotes or titles.",
+   "writing": "Writing Japanese:\n- Dialogue in 「」, thoughts or nested quotes in 『』 or （）. Use no Western quotation marks.\n- Give each character consistent speech (役割語): first-person pronoun (俺, 僕, 私, あたし), sentence endings and politeness fit to age, personality and relationship.\n- Set politeness by relationship: strangers, superiors and service settings use 敬語; friends and family use plain forms.\n- Narration is plain past form, natural novel prose. Drop pronouns where Japanese would omit them; avoid overusing 彼/彼女.\n- Write foreign names in katakana, consistently. Chinese names keep their kanji.\n- Express sound and manner with 擬音語 and 擬態語 where natural."
+  },
+  {
+   "code": "ko",
+   "name": "Korean",
+   "prose": "Korean",
+   "native": "한국어",
+   "vision": [
+    "ko-KR",
+    "en-US"
+   ],
+   "tesseract": [
+    "kor",
+    "eng"
+   ],
+   "labels": {
+    "cover": "표지",
+    "backCover": "뒤표지",
+    "contents": "목차",
+    "opening": "들어가며",
+    "page": "%d쪽"
+   },
+   "charsPerToken": 1.4,
+   "weight": 1.5,
+   "names": "Hangul for foreign names, following standard loanword spelling",
+   "reading": "Reading Korean:\n- Subjects are often left out. Infer them from context.\n- Speech levels (반말, 해요체, 하십시오체) show age, rank and closeness. Carry them into the target language’s own register, consistently for each relationship.\n- Kinship terms and titles (오빠, 언니, 형, 누나, 선배, 씨, 님) are used in place of names and “you”. Keep them with names in Latin-script languages where that reads naturally, or use the target language’s own forms of address.\n- Sentence endings (-네, -지, -거든, -잖아) carry tone, not content.\n- 의성어 and 의태어 become natural sound words or vivid verbs.\n- Romanize names consistently (Revised Romanization unless the book shows another spelling).",
+   "writing": "Writing Korean:\n- Dialogue in “ ”, thoughts in ‘ ’, as Korean novels do.\n- Set each pair of characters’ speech level by their relationship and keep it consistent: 반말 between close friends and to younger people, 해요체 for polite everyday speech, 하십시오체 in formal or official settings.\n- Address people by name, title or kinship term (선배, 형, 오빠, 언니, 누나, 선생님, 씨, 님) rather than 너 or 당신 where Korean would.\n- Narration is written style (-다 endings), usually past tense, natural novel prose. Drop pronouns where Korean omits them; avoid overusing 그/그녀.\n- Write foreign names in Hangul following standard loanword spelling (외래어 표기법), consistently.\n- Express sound and manner with 의성어 and 의태어 where natural."
+  },
+  {
+   "code": "zh-Hans",
+   "name": "Chinese (Simplified)",
+   "prose": "Simplified Chinese",
+   "native": "简体中文",
+   "vision": [
+    "zh-Hans",
+    "en-US"
+   ],
+   "tesseract": [
+    "chi_sim",
+    "eng"
+   ],
+   "labels": {
+    "cover": "封面",
+    "backCover": "封底",
+    "contents": "目录",
+    "opening": "开篇",
+    "page": "第%d页"
+   },
+   "charsPerToken": 1.1,
+   "weight": 1.3,
+   "names": "standard mainland Chinese transliterations for foreign names",
+   "reading": "Reading Chinese:\n- Chinese marks no tense. Infer time from context, aspect particles (了, 过, 着) and time words.\n- Subjects and objects are often left out. Infer them from context.\n- 您 versus 你, titles (老师, 师父, 先生) and kinship terms (哥, 姐, 叔, 阿姨) show respect and closeness. Carry them into the target language’s own register.\n- Modal particles (吧, 呢, 啊, 嘛, 啦) carry tone, not content.\n- 成语 and classical allusions become natural expressions with the same meaning, not literal glosses.\n- Romanize names in Hanyu Pinyin for Latin-script languages, unless the book shows another spelling (Taiwan and Hong Kong names often have their own).",
+   "writing": "Writing Simplified Chinese:\n- Simplified characters with mainland vocabulary and conventions.\n- Dialogue in “ ”, nested quotes in ‘ ’. Use full-width punctuation (，。！？：；、……——).\n- Choose 您 or 你 by relationship. Carry tone in dialogue with modal particles (吧, 呢, 啊, 嘛, 呀) fitted to the speaker.\n- Natural literary prose. Use 成语 where they fit, without overdoing them. Avoid overusing 他/她 and 的, and drop pronouns where Chinese would.\n- Write foreign names with standard mainland transliterations, given name and surname joined by ·, consistently. Japanese and Korean names keep their Chinese characters where they have them.\n- Express sound with natural Chinese onomatopoeia (拟声词)."
+  },
+  {
+   "code": "zh-Hant",
+   "name": "Chinese (Traditional)",
+   "prose": "Traditional Chinese",
+   "native": "繁體中文",
+   "vision": [
+    "zh-Hant",
+    "en-US"
+   ],
+   "tesseract": [
+    "chi_tra",
+    "eng"
+   ],
+   "labels": {
+    "cover": "封面",
+    "backCover": "封底",
+    "contents": "目錄",
+    "opening": "開篇",
+    "page": "第%d頁"
+   },
+   "charsPerToken": 1.1,
+   "weight": 1.3,
+   "names": "the transliterations usual in Taiwan for foreign names",
+   "reading": "Reading Chinese:\n- Chinese marks no tense. Infer time from context, aspect particles (了, 過, 着) and time words.\n- Subjects and objects are often left out. Infer them from context.\n- 您 versus 你, titles (老師, 師父, 先生) and kinship terms (哥, 姐, 叔, 阿姨) show respect and closeness. Carry them into the target language’s own register.\n- Modal particles (吧, 呢, 啊, 嘛, 囉) carry tone, not content.\n- 成語 and classical allusions become natural expressions with the same meaning, not literal glosses.\n- Romanize names in Hanyu Pinyin for Latin-script languages, unless the book shows another spelling (Taiwan and Hong Kong names often have their own).",
+   "writing": "Writing Traditional Chinese:\n- Traditional characters with Taiwan vocabulary and conventions (計程車, 軟體, 影片, 網路).\n- Dialogue in 「」, nested quotes in 『』. Use full-width punctuation (，。！？：；、……——).\n- Choose 您 or 你 by relationship. Carry tone in dialogue with modal particles (吧, 呢, 啊, 嘛, 呀) fitted to the speaker.\n- Natural literary prose. Use 成語 where they fit, without overdoing them. Avoid overusing 他/她 and 的, and drop pronouns where Chinese would.\n- Write foreign names with the transliterations usual in Taiwan, given name and surname joined by ·, consistently. Japanese and Korean names keep their Chinese characters where they have them.\n- Express sound with natural Chinese onomatopoeia (擬聲詞)."
+  },
+  {
+   "code": "th",
+   "name": "Thai",
+   "prose": "Thai",
+   "native": "ภาษาไทย",
+   "vision": [
+    "th-TH",
+    "en-US"
+   ],
+   "tesseract": [
+    "tha",
+    "eng"
+   ],
+   "labels": {
+    "cover": "ปก",
+    "backCover": "ปกหลัง",
+    "contents": "สารบัญ",
+    "opening": "บทนำ",
+    "page": "หน้า %d"
+   },
+   "charsPerToken": 1.8,
+   "weight": 1.7,
+   "names": "Thai script for foreign names, following Royal Institute transliteration",
+   "reading": "Reading Thai:\n- Thai has no spaces between words; spaces separate clauses and sentences.\n- Tense is not marked. Infer it from context.\n- Pronouns and kinship words used as pronouns (ผม, ฉัน, เรา, กู/มึง, พี่, น้อง) show gender, age, closeness and rudeness. Carry them into the target language’s own register.\n- Particles (ครับ, ค่ะ, นะ, จ้ะ, สิ, เถอะ) carry politeness and tone, not content.\n- Nicknames and the title คุณ before names are common. Keep each name and nickname consistent, romanized in the Royal Thai General System unless the book shows another spelling.",
+   "writing": "Writing Thai:\n- Thai script, with no spaces between words; a space separates clauses and sentences.\n- Dialogue in “ ”.\n- Choose pronouns per speaker and relationship and keep them consistent: ผม (men) or ฉัน/ดิฉัน (women) in polite speech, เรา or a nickname among friends, กู/มึง for rough speech, พี่/น้อง/ป้า/ลุง by age.\n- Polite particles (ครับ for men, ค่ะ/คะ for women) and softeners (นะ, จ้ะ, สิ, เถอะ) carry politeness and tone; fit them to the speaker.\n- Narration is natural written Thai novel prose. Drop pronouns where Thai would.\n- Write foreign names in Thai script following Royal Institute transliteration, consistently.\n- Render sound effects with Thai onomatopoeia."
+  },
+  {
+   "code": "vi",
+   "name": "Vietnamese",
+   "prose": "Vietnamese",
+   "native": "Tiếng Việt",
+   "vision": [
+    "vi-VT",
+    "en-US"
+   ],
+   "tesseract": [
+    "vie",
+    "eng"
+   ],
+   "labels": {
+    "cover": "Bìa",
+    "backCover": "Bìa sau",
+    "contents": "Mục lục",
+    "opening": "Mở đầu",
+    "page": "Trang %d"
+   },
+   "charsPerToken": 2.4,
+   "weight": 1.4,
+   "names": "original spelling for Western names, Sino-Vietnamese readings for Chinese names",
+   "reading": "Reading Vietnamese:\n- Pronouns are kinship words (anh, chị, em, ông, bà, cô, chú, con, cháu) or pairs such as tôi–cậu and tao–mày. They show age, closeness and attitude: carry the relationship into the target language’s own register, not as literal kinship words, unless the target uses them the same way.\n- Tense markers (đã, đang, sẽ) are optional. Infer time from context.\n- Particles (ạ, nhé, nhỉ, à, hả, mà, chứ) carry politeness and tone, not content.\n- Reduplicated words (từ láy) carry manner and intensity.\n- Vietnamese names keep their diacritics in Latin-script languages.",
+   "writing": "Writing Vietnamese:\n- Full Vietnamese diacritics. Dialogue in “ ”.\n- Choose a pronoun pair for each pair of characters by age, relationship and closeness, and keep it consistent: anh–em, chị–em, ông/bà–cháu, cô/chú–cháu, tớ–cậu between friends, tao–mày for rough speech, tôi with anh/chị/ông/bà in formal speech. Narration uses anh ấy, cô ấy, hắn or names, fitted to the narrator’s attitude.\n- Particles (ạ, nhé, nhỉ, à, hả, mà, chứ) carry politeness and tone; fit them to the speaker.\n- Natural modern prose. Use Sino-Vietnamese (Hán-Việt) words where they suit the register, not by default.\n- Keep Western names in their original spelling; write Chinese names in their Sino-Vietnamese reading; romanize Japanese and Korean names. Keep all of them consistent.\n- Express sound and manner with Vietnamese onomatopoeia and từ láy."
+  }
+ ]
+}

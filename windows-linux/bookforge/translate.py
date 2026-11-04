@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from lxml import etree
 
-from . import styleguides
+from . import languages, styleguides
 from .epubwriter import write_zip
 from .util import Failure
 
@@ -18,9 +18,6 @@ ENDPOINT = os.environ.get('BOOKFORGE_API_URL') or 'https://api.anthropic.com/v1/
 # per million tokens, claude-opus-5-5
 INPUT_PRICE, OUTPUT_PRICE, CACHE_READ_PRICE = 4.0, 20.0, 0.20
 
-NAMES = styleguides.LANGUAGE_NAMES
-# shown after the title so a translated copy doesn't replace the original on the Kindle
-TITLE_SUFFIX = {'id': 'Bahasa Indonesia', 'en': 'English', 'ja': '日本語'}
 
 BLOCK_TAGS = ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'dt', 'dd', 'figcaption', 'td', 'th', 'blockquote', 'title']
 # inline elements that can be rebuilt from text with <i>/<b>/<br/>; anything else (links, images…) is kept in place
@@ -57,9 +54,11 @@ class Malformed(Exception):
 
 def estimate(source_chars, src, dst):
     """Rough cost before starting: source text in, translation (plus some reasoning) out."""
-    chars_per_token = 1.3 if src == 'ja' else 3.6
-    src_tokens = source_chars / chars_per_token
-    expansion = (1.0 if src == 'ja' else 1.4) if dst == 'ja' else (0.9 if src == 'ja' else 1.1)
+    src_l, dst_l = languages.get(src) or {}, languages.get(dst) or {}
+    src_tokens = source_chars / src_l.get('charsPerToken', 3.6)
+    # the same text takes more tokens in some languages
+    ratio = dst_l.get('weight', 1.0) / src_l.get('weight', 1.0)
+    expansion = 1.1 if ratio == 1 else max(0.9, ratio)
     chunks = source_chars / 3000 + 1
     inp = src_tokens * 1.25 + chunks * 600
     cached = chunks * 3000
@@ -179,12 +178,13 @@ class Claude:
                 'notes': {'type': 'string', 'description': 'Anything else a translator must keep consistent.'},
             },
         }
-        src, dst = NAMES.get(self.src, self.src), NAMES.get(self.dst, self.dst)
+        src, dst = languages.prose(self.src), languages.prose(self.dst)
+        names = (languages.get(self.dst) or {}).get('names', '')
         prompt = ('Below are excerpts from across a %s novel that is about to be translated into %s. '
                   'Before translating, study them and write a translation style sheet: the narrative voice; the dialogue register; '
                   "every recurring character's way of speaking and how to voice them in %s; and a glossary of names, titles, places "
-                  'and recurring terms with the exact %s rendering to use every time (for Japanese, katakana for names). Be specific and concise.\n\n'
-                  % (src, dst, dst, dst)
+                  'and recurring terms with the exact %s rendering to use every time%s. Be specific and concise.\n\n'
+                  % (src, dst, dst, dst, ' (%s)' % names if names else '')
                   + '\n\n'.join('<excerpt %d>\n%s\n</excerpt>' % (i + 1, s) for i, s in enumerate(samples)))
         obj = self.call(self.system(), prompt, schema, 16000, usage)
         if not isinstance(obj, dict):
@@ -259,6 +259,21 @@ class Claude:
 
 
 # MARK: - EPUB
+
+XML_LANG = '{http://www.w3.org/XML/1998/namespace}lang'
+
+
+def relabel(doc, src, dst):
+    """Marks the pages as the new language: e-readers choose fonts by it (Chinese, Japanese and Thai above all)."""
+    root = doc.getroot()
+    for el in root.iter():
+        if not isinstance(el.tag, str):
+            continue
+        for a in (XML_LANG, 'lang'):
+            v = el.get(a)
+            if (el is root and (v is not None or a == XML_LANG)) or (v is not None and languages.normalize(v) == src):
+                el.set(a, dst)
+
 
 def local(el):
     return etree.QName(el).localname.lower() if isinstance(el.tag, str) else ''
@@ -441,7 +456,7 @@ def samples(paras):
 def translate_epub(epub, src, dst, output, api_key, status):
     """Returns dict(paragraphs, left, cost, style_sheet). `status(line, fraction)`."""
     if src == dst:
-        raise Failure('The book is already in %s.' % NAMES.get(dst, dst))
+        raise Failure('The book is already in %s.' % languages.name(dst))
     if not api_key:
         raise Failure('Add your Claude API key first.')
     tmp = tempfile.mkdtemp(prefix='bookforge-tr-')
@@ -554,14 +569,16 @@ def translate_epub(epub, src, dst, output, api_key, status):
                     left += 1
 
         for f, doc in docs:
+            relabel(doc, src, dst)
             doc.write(f, xml_declaration=True, encoding='utf-8')
         if ncx:
+            relabel(ncx[1], src, dst)
             ncx[1].write(ncx[0], xml_declaration=True, encoding='utf-8')
         for n in opf.xpath("//*[local-name()='language']"):
             n.text = dst
         t = opf.xpath("//*[local-name()='metadata']/*[local-name()='title']")
         if t:
-            t[0].text = '%s (%s)' % (t[0].text or '', TITLE_SUFFIX.get(dst, dst))
+            t[0].text = '%s (%s)' % (t[0].text or '', (languages.get(dst) or {}).get('native', dst))
         opf.write(opf_file, xml_declaration=True, encoding='utf-8')
 
         entries = []

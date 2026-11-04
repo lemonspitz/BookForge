@@ -1,9 +1,9 @@
 """How each language's style maps onto the target language. Generated from the Mac app's StyleGuides.swift."""
-LANGUAGE_NAMES = {'id': 'Indonesian', 'en': 'English', 'ja': 'Japanese'}
+from . import languages
 
 
 def base(src, dst):
-    src, dst = LANGUAGE_NAMES.get(src, src), LANGUAGE_NAMES.get(dst, dst)
+    src, dst = languages.prose(src), languages.prose(dst)
     return f"""You are an experienced literary translator of fiction from {src} into {dst}. Translate for meaning, voice and effect, so the result reads like a published {dst} novel, not a word-for-word gloss.
 
 Rules:
@@ -73,4 +73,7 @@ PAIRS = {
 
 
 def pair(src, dst):
-    return PAIRS.get((src, dst), '')
+    if (src, dst) in PAIRS:
+        return PAIRS[(src, dst)]
+    # any other pair: how to read the source language, then how to write the target
+    return '\n\n'.join(l for l in ((languages.get(src) or {}).get('reading'), (languages.get(dst) or {}).get('writing')) if l)

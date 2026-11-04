@@ -29,12 +29,12 @@ if let i = CommandLine.arguments.firstIndex(of: "--icon"), i + 1 < CommandLine.a
     exit(0)
 }
 
-// `BookForge --convert <in.pdf> <out.epub> [id|en]` converts without the window.
+// `BookForge --convert <in.pdf> <out.epub> [language code]` converts without the window.
 if let i = CommandLine.arguments.firstIndex(of: "--convert"), i + 2 < CommandLine.arguments.count {
     let args = CommandLine.arguments
     let src = URL(fileURLWithPath: args[i + 1]), out = URL(fileURLWithPath: args[i + 2])
     let lang = i + 3 < args.count ? args[i + 3] : "id"
-    let languages = lang == "id" ? ["id-ID", "en-US"] : ["en-US"]
+    let languages = Languages[lang]?.vision ?? ["en-US"]
     let sem = DispatchSemaphore(value: 0)
     Task.detached {
         guard let doc = PDFDocument(url: src) else { print("cannot open PDF"); exit(1) }

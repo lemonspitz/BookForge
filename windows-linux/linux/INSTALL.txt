@@ -1,4 +1,4 @@
-Book Forge 1.4 for Linux
+Book Forge 1.1 for Linux
 ========================
 
 1. Unpack this folder somewhere it can stay, for example ~/Applications/Book Forge.
@@ -13,7 +13,8 @@ Optional:
 - Calibre (calibre-ebook.com): only to turn EPUBs into Kindle books (so they appear in the Kindle's own
   library with covers) and to import Kindle-format books (AZW3, MOBI) as EPUB. A Kindle running KOReader opens
   EPUBs without it, and Email to Kindle converts them too.
-- Tesseract OCR with your languages, for scanned PDFs:  sudo apt install tesseract-ocr tesseract-ocr-ind tesseract-ocr-jpn
+- Tesseract OCR with your languages, for scanned PDFs:  sudo apt install tesseract-ocr tesseract-ocr-ind
+  (and per language: tesseract-ocr-jpn, -kor, -chi-sim, -chi-tra, -tha, -vie)
 
 Your library is kept in ~/Documents/Book Forge Library, the same layout as the Mac app.
 The Claude API key and email password go into your keyring (needs secret-tool, from libsecret-tools);

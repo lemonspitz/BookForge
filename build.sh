@@ -14,6 +14,8 @@ cp build/obj/BookForge "$APP/Contents/MacOS/BookForge"
 # libmtp and libusb (LGPL, from Calibre's build) reach MTP readers such as newer Kindles
 mkdir -p "$APP/Contents/Frameworks"
 cp vendor/mac/*.dylib "$APP/Contents/Frameworks/"
+# the languages it reads and translates (shared with the Windows and Linux app)
+cp Resources/languages.json "$APP/Contents/Resources/"
 
 ICONSET=build/obj/AppIcon.iconset
 mkdir -p "$ICONSET"
@@ -35,8 +37,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleDisplayName</key><string>Book Forge</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.4</string>
-  <key>CFBundleVersion</key><string>6</string>
+  <key>CFBundleShortVersionString</key><string>1.1</string>
+  <key>CFBundleVersion</key><string>7</string>
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHighResolutionCapable</key><true/>

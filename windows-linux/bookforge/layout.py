@@ -3,12 +3,15 @@ Pure heuristics: indents start paragraphs, big gaps are scene breaks, a short un
 top of a page followed by space is a heading.
 
 Blocks are tuples: ('heading', text), ('para', text, first, spaced), ('centered', [lines]), ('scene',), ('image', page)."""
+import unicodedata
+
 import regex as re
 
-from .pdfread import is_cjk, read_initial
+from .pdfread import joins_without_space, read_initial
 
 ORNAMENTS = {"COS", "CoS", "cos", "cg", "Cg", "C3", "c3", "ca", "CG", "CS", "cs",
              "*", "* * *", "***", "~", "#", "☙", "❧", "§", "o0o", "oOo", "-o-"}
+HAN_DASH = re.compile(r'(?<=[\u3400-\u4DBF\u4E00-\u9FFF])[—―－ー](?=[\u3400-\u4DBF\u4E00-\u9FFF])')
 HOMOGLYPHS = str.maketrans({"а": "a", "р": "p", "К": "K", "е": "e", "п": "n", "ı": "i",
                             "‚": ",", "¿": "?", "ạ": "a", "ị": "i", "о": "o", "с": "c"})
 
@@ -27,6 +30,11 @@ def median(xs):
 def clean_line(l):
     l = l.copy()
     l.text = l.text.strip().translate(HOMOGLYPHS)
+    # some PDFs map Chinese characters to look-alike Kangxi radicals (⼀ for 一): put the real ones back
+    if any(0x2E80 <= ord(c) <= 0x2FDF for c in l.text):
+        l.text = ''.join(unicodedata.normalize('NFKC', c) if 0x2E80 <= ord(c) <= 0x2FDF else c for c in l.text)
+    # text recognition reads 一 as a dash between two Chinese characters (第—章)
+    l.text = HAN_DASH.sub('一', l.text)
     return l
 
 
@@ -36,9 +44,10 @@ def is_heading_text(t):
         return False
     if s in ORNAMENTS:
         return False
-    if s[-1] in '.,;!?"”’…-' and not s.endswith('?!'):
+    if s[-1] in '.,;!?"”’…-。，、！？：；」』' and not s.endswith('?!'):
         return False
-    return s[0].isupper() or s[0].isdigit()
+    # Thai, Chinese, Japanese and Korean have no capitals
+    return s[0].isupper() or s[0].isdigit() or (s[0].isalpha() and s[0].lower() == s[0].upper())
 
 
 def pretty_heading(t):
@@ -358,8 +367,8 @@ class TextFixer:
                     out += nxt                  # real hyphen (reduplication / compound)
                 else:
                     out = out[:-1] + nxt        # typesetting hyphen
-            elif out and nxt and (is_cjk(out[-1]) or is_cjk(nxt[0])):
-                out += nxt                      # Japanese/Chinese lines join without a space
+            elif out and nxt and (joins_without_space(out[-1]) or joins_without_space(nxt[0])):
+                out += nxt                      # Japanese, Chinese and Thai lines join without a space
             else:
                 out += ' ' + nxt
         return out

@@ -10,6 +10,7 @@ a = Analysis(
            (os.path.join(here, 'bookforge', 'icon.png'), 'bookforge'),
            (os.path.join(here, 'bookforge', 'icon.ico'), 'bookforge'),
            (os.path.join(here, '..', 'Resources', 'device.py'), '.'),
+           (os.path.join(here, '..', 'Resources', 'languages.json'), 'bookforge'),
            (os.path.join(here, 'THIRD-PARTY.md'), '.')],
     hiddenimports=['bookforge.readers.wpd', 'bookforge.readers.libmtp', 'bookforge.readers.calibre_bridge',
                    'PySide6.QtWebEngineCore', 'PySide6.QtWebEngineWidgets'] + (['comtypes.client', 'comtypes.stream'] if windows else []),

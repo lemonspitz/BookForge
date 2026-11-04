@@ -27,12 +27,15 @@ pages[0].save(pdf, save_all=True, append_images=pages[1:], resolution=72)
 from bookforge.qt import QApplication, QTimer, Qt, QWebEngineView  # noqa: F401
 QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
 app = QApplication(['bookforge-smoke'])
-from bookforge import devices, library, pdfread
+from bookforge import devices, languages, library, pdfread, styleguides
 from bookforge.ui_main import MainWindow
 L = library.shared()
 L.rescan()
 print('library books:', len(L.books))
 print('pdf pages:', pdfread.page_count(pdf))
+print('languages:', ', '.join(languages.CODES))
+assert {'id', 'en', 'ja', 'ko', 'zh-Hans', 'zh-Hant', 'th', 'vi'} <= set(languages.CODES)
+assert all(styleguides.pair(a, b) for a in languages.CODES for b in languages.CODES if a != b)
 w = MainWindow()
 w.resize(1100, 720)
 w.show()
@@ -46,6 +49,7 @@ def shot(name):
 
 steps = [lambda: shot('library'), lambda: w.side.setCurrentItem(w.dev_item), lambda: shot('device'),
          lambda: w.forge.load(pdf), lambda: w.side.setCurrentItem(w.forge_item), lambda: shot('convert'),
+         lambda: print('translate to:', [w.forge.to_c.itemText(i) for i in range(w.forge.to_c.count())]),
          lambda: app.quit()]
 
 

@@ -14,7 +14,7 @@ struct LibraryBook: Codable, Identifiable, Hashable {
     var file: String            // file name inside the library folder
     var title: String
     var author: String
-    var language: String        // "id", "en", "ja", or another two-letter code
+    var language: String        // a code from Languages ("id", "zh-Hant"…) or another two-letter code
     var added: Date
     var position: ReadingPosition?
 
@@ -212,8 +212,7 @@ final class Library {
     }
 
     nonisolated static func normalizeLanguage(_ code: String) -> String {
-        let c = code.lowercased().split(whereSeparator: { $0 == "-" || $0 == "_" }).first.map(String.init) ?? ""
-        return ["in": "id", "ind": "id", "eng": "en", "jp": "ja", "jpn": "ja"][c] ?? String(c.prefix(2))
+        Languages.normalize(code)
     }
 
     nonisolated static func readMeta(_ url: URL) -> BookMeta {
