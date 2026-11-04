@@ -1,18 +1,14 @@
-"""The USB e-reader, reached through Calibre's device drivers (device.py, shared with the Mac app)."""
+"""The USB e-reader, reached directly (readers/): drives, MTP readers, Windows Portable Devices.
+Calibre, when it's installed, is only used to convert books to and from Kindle formats."""
 import json, os, re, subprocess, tempfile, threading, time, uuid
 
-from qt.core import QObject, QTimer, pyqtSignal, pyqtSlot
+from .qt import QObject, QTimer, pyqtSignal, pyqtSlot
 
 from . import library as lib
-from .util import Failure, cache_dir, calibre_app_running, calibre_exe, no_window, quit_calibre, run, settings
-
-
-def script_path():
-    here = os.path.dirname(os.path.abspath(__file__))
-    for p in (os.path.join(here, 'device.py'), os.path.join(here, '..', '..', 'Resources', 'device.py')):
-        if os.path.exists(p):
-            return os.path.abspath(p)
-    raise Failure('device.py is missing from Book Forge.')
+from .readers import detect, ops
+from .readers.meta import ext as file_ext
+from .util import (Failure, cache_dir, calibre_app_running, calibre_exe, human_readable, no_window, quit_calibre, run,
+                   settings)
 
 
 # MARK: - Books on the reader (dicts: title, authors, path, lpath, uuid, size)
@@ -44,6 +40,11 @@ def store_book(b):
     return fmt(b) in ('kfx', 'azw4') or bool(STORE_NAME.search(file_name(b)))
 
 
+def needs_conversion(b):
+    """Reader books that only come into the library as EPUBs through Calibre."""
+    return fmt(b) not in ('epub', 'kepub', 'pdf')
+
+
 def is_kindle(reader):
     return reader['kind'].startswith('kindle')
 
@@ -52,15 +53,23 @@ def short_name(reader):
     return 'Kindle' if is_kindle(reader) else reader['name']
 
 
+def can_convert():
+    return calibre_exe('ebook-convert') is not None
+
+
 def accepts(reader, format):
-    """Whether a library book in this format can go on the reader (Kindles get EPUBs converted)."""
+    """Whether a library book in this format can go on the reader. Kindles get EPUBs converted (with Calibre)
+    or, if they run KOReader, as they are."""
     if is_kindle(reader):
-        return format in ('epub', 'pdf')
-    return format in reader['formats'] or (format == 'epub' and 'azw3' in reader['formats'])
+        return format == 'pdf' or (format == 'epub' and (can_convert() or 'epub' in reader['formats']))
+    return format in reader['formats'] or (format == 'epub' and 'azw3' in reader['formats'] and can_convert())
 
 
 FAMILY = {'kindle': 'Amazon Kindle', 'kindle-oasis': 'Amazon Kindle', 'kindle-scribe': 'Amazon Kindle',
           'kobo': 'Kobo', 'pocketbook': 'PocketBook', 'boox': 'Onyx Boox', 'tolino': 'Tolino', 'nook': 'Barnes & Noble Nook'}
+
+NEEDS_CALIBRE = ('Install Calibre (free, calibre-ebook.com) to convert them, or send them with Email to Kindle, '
+                 'which converts them for you.')
 
 
 def one_per_title(items, key, rank):
@@ -75,136 +84,79 @@ def one_per_title(items, key, rank):
     return [it for i, it in enumerate(items) if i in keep]
 
 
-# MARK: - Calibre plumbing (any thread)
-
-def script(command, payload=None, progress=None):
-    """Runs device.py through calibre-debug; returns its RESULT."""
-    args = [calibre_exe('calibre-debug'), '-e', script_path(), command]
-    tmp = None
-    if payload is not None:
-        fd, tmp = tempfile.mkstemp(prefix='bookforge-', suffix='.json')
-        with os.fdopen(fd, 'w', encoding='utf-8') as f:
-            json.dump(payload, f)
-        args.append(tmp)
-    env = dict(os.environ, PYTHONIOENCODING='utf-8')
-    try:
-        p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, **no_window())
-        result, tail = None, []
-        for raw in p.stdout:
-            line = raw.decode('utf-8', 'replace').rstrip('\r\n')
-            if line.startswith('RESULT '):
-                try:
-                    result = json.loads(line[7:])
-                except ValueError:
-                    pass
-            elif line.startswith('PROGRESS '):
-                try:
-                    msg = json.loads(line[9:]).get('message')
-                except ValueError:
-                    msg = None
-                if msg and progress:
-                    progress(msg)
-            else:
-                tail = (tail + [line])[-8:]
-        p.wait()
-    finally:
-        if tmp:
-            os.remove(tmp)
-    if result is None:
-        raise Failure("Calibre gave no answer:\n" + '\n'.join(tail))
-    return result
-
-
-def reader_from(r):
-    return dict(name=r.get('name') or 'E-reader', kind=r.get('kind') or 'generic', driver=r.get('driver') or '',
-                formats=r.get('formats') or [], total=r.get('total') or 0, free=r.get('free') or 0, books=r.get('books') or [])
-
+# MARK: - Converting (Calibre, when installed)
 
 def readable(path):
     """A file fetched from a reader, as something the library can hold: EPUBs and PDFs as they are,
-    anything else (AZW3, MOBI, FB2…) converted to EPUB. Raises Calibre's error, which names DRM if that's the problem."""
+    anything else (AZW3, MOBI, FB2…) converted to EPUB with Calibre. Raises Calibre's error, which names DRM if
+    that's the problem."""
     if path.lower().rsplit('.', 1)[-1] in ('epub', 'pdf'):
         return path
+    exe = calibre_exe('ebook-convert')
+    if not exe:
+        raise Failure('needs Calibre')
     out = os.path.splitext(path)[0] + '.converted.epub'
-    run([calibre_exe('ebook-convert'), path, out])
+    run([exe, path, out])
     return out
 
 
 def prepare(item, reader, log):
-    """The file to send to this reader: as it is, or converted for Kindle. None if the reader can't open it."""
+    """The file to send to this reader: as it is, or converted for Kindle. (None, reason) if it can't go."""
     ext = item['file'].rsplit('.', 1)[-1].lower()
+    convert = can_convert()
     if is_kindle(reader):
-        # Kindles don't open sideloaded EPUBs
         if ext == 'pdf':
-            return item['file']
-        wants_azw3 = ext == 'epub'
+            return item['file'], None
+        if ext != 'epub':
+            return None, 'format'
+        if not convert:
+            # KOReader opens EPUBs; the Kindle's own library needs them converted
+            return (item['file'], None) if 'epub' in reader['formats'] else (None, 'calibre')
     elif ext in reader['formats']:
-        return item['file']
-    else:
-        wants_azw3 = ext == 'epub' and 'azw3' in reader['formats']
-    if not wants_azw3:
-        return None
+        return item['file'], None
+    elif not (ext == 'epub' and 'azw3' in reader['formats']):
+        return None, 'format'
+    elif not convert:
+        return None, 'calibre'
     cache = os.path.join(cache_dir(), 'Converted')
     os.makedirs(cache, exist_ok=True)
     out = os.path.join(cache, item['uuid'] + '.azw3')
     if os.path.exists(out) and os.path.getmtime(out) > os.path.getmtime(item['file']):
-        return out
+        return out, None
     log('Converting “%s” for Kindle…' % item['title'])
-    cover = os.path.join(cache, item['uuid'] + '-cover.jpg')
-    try:
-        subprocess.run([calibre_exe('ebook-meta'), item['file'], '--get-cover=' + cover], capture_output=True, **no_window())
-        args = [calibre_exe('ebook-convert'), item['file'], out, '--output-profile', 'kindle_pw3']
-        if os.path.exists(cover):
-            args += ['--cover', cover]
-        run(args)
-    finally:
-        if os.path.exists(cover):
-            os.remove(cover)
-    return out
-
-
-def upload(items, reader, log):
-    """Converts as needed and uploads. Returns (sent, titles the reader can't open)."""
-    entries, skipped = [], []
-    for it in items:
-        f = prepare(it, reader, log)
-        if f is None:
-            skipped.append('“%s”' % it['title'])
-            continue
-        entries.append(dict(file=f, title=it['title'], authors=[a for a in it['author'].split(' & ') if a],
-                            uuid=it['uuid'], language=it['language']))
-    if not entries:
-        return 0, skipped
-    log('Copying to %s…' % reader['name'])
-    r = script('upload', entries, log)
-    if r.get('status') != 'uploaded':
-        raise Failure(r.get('error') or 'The upload failed (%s).' % r.get('status'))
-    return r.get('count') or len(entries), skipped
+    args = [calibre_exe('ebook-convert'), item['file'], out, '--output-profile', 'kindle_pw3']
+    if item.get('cover') and os.path.exists(item['cover']):
+        args += ['--cover', item['cover']]
+    run(args)
+    return out, None
 
 
 def send_item(book=None, file=None, title='', author='', language=''):
+    L = lib.shared()
     if book is not None:
-        L = lib.shared()
-        return dict(file=L.url(book), title=book['title'], author=book['author'], uuid=book['id'], language=book['language'])
-    return dict(file=file, title=title, author=author, uuid=str(uuid.uuid4()).upper(), language=language)
+        return dict(file=L.url(book), title=book['title'], authors=[a for a in book['author'].split(' & ') if a],
+                    uuid=book['id'], language=book['language'], cover=L.cover_url(book))
+    return dict(file=file, title=title, authors=[a for a in author.split(' & ') if a], uuid=str(uuid.uuid4()).upper(),
+                language=language, cover=None)
 
 
 def send_now(items, log):
     """Finds the reader and sends books to it in one step (Convert & Translate)."""
     log('Looking for your e-reader…')
-    info = script('info')
-    st = info.get('status')
-    if st == 'no_device':
-        raise Failure('No e-reader found. Connect it straight to the computer with a data cable (not a hub) and unlock it.')
-    if st == 'open_failed':
-        raise Failure('%s is busy. Close Calibre or any other app using it, replug it and try again.' % (info.get('name') or 'The e-reader'))
-    if st != 'ok':
-        raise Failure(info.get('error') or "Calibre couldn't read the e-reader.")
-    reader = reader_from(info)
-    sent, skipped = upload(items, reader, log)
+    D = shared()
+    D._rescan_blocking()
+    if D.state == 'busy':
+        raise Failure('%s is busy. Close Calibre or any other app using it, replug it and try again.' % D.state_name)
+    if D.reader is None:
+        raise Failure(D.state_name if D.state == 'failed' else
+                      'No e-reader found. Connect it straight to the computer with a data cable (not a hub) and unlock it.')
+    reader = D.reader
+    with D._io:
+        sent, skipped, need = D._upload(items, log)
+    D._rescan_blocking()
     if sent == 0:
-        raise Failure("%s can't open this format." % reader['name'])
-    msg = 'On your %s%s' % (reader['name'], ', with its cover. You can unplug it.' if is_kindle(reader) else '. You can unplug it.')
+        raise Failure(("%s can't open EPUBs. " % reader['name'] + NEEDS_CALIBRE) if need else "%s can't open this format." % reader['name'])
+    msg = 'On your %s%s' % (reader['name'], ', with its cover. You can unplug it.' if is_kindle(reader) and can_convert() else '. You can unplug it.')
     if skipped:
         msg += ' Skipped %s: format not supported.' % ', '.join(skipped)
     return msg
@@ -228,6 +180,8 @@ class Devices(QObject):
         self.last_seen = None
         self._running = False
         self._lock = threading.Lock()
+        self._io = threading.RLock()     # one conversation with the reader at a time
+        self.conn = self.conn_key = self.ejected_key = None
         self._pending = None
         self._by_id, self._by_title = {}, {}
         self.locked = set(settings.get('lockedReaderBooks', []))
@@ -248,34 +202,26 @@ class Devices(QObject):
 
     # MARK: watching for readers
 
+    usb_changed = pyqtSignal()
+
     def start(self):
-        """Watches the USB bus (cheaply, through Calibre's scanner) and reads the reader whenever it changes."""
+        """Checks every few seconds what's attached (cheaply) and reads the reader whenever that changes."""
+        self.usb_changed.connect(lambda: self.schedule_scan())
         threading.Thread(target=self._watch, daemon=True).start()
         self.schedule_scan(0)
 
     def _watch(self):
-        from calibre.devices.scanner import DeviceScanner
-        scanner = DeviceScanner()
         last = None
         while True:
             try:
-                scanner.scan()
-                sig = sorted(repr(d) for d in scanner.devices)
+                with self._io:
+                    sig = sorted(repr(k) for k, _ in detect.candidates())
             except Exception:
                 sig = last
             if last is not None and sig != last:
-                self._relay_schedule()
+                self.usb_changed.emit()     # queued to the GUI thread
             last = sig
             time.sleep(3)
-
-    def _relay_schedule(self):
-        # QTimer must be started from the GUI thread
-        from qt.core import QMetaObject, Qt
-        QMetaObject.invokeMethod(self, '_schedule_default', Qt.ConnectionType.QueuedConnection)
-
-    @pyqtSlot()
-    def _schedule_default(self):
-        self.schedule_scan()
 
     def schedule_scan(self, delay=2.0):
         """Readers take a moment to appear after they're plugged in, and one plug-in fires several events."""
@@ -288,42 +234,63 @@ class Devices(QObject):
         self._running = True
         self.scanning = True
         self._emit()
-        from .util import in_background
 
-        def done(r):
+        def work():
+            self._rescan_blocking(emit=False)
             self._running = False
             self.scanning = False
-            self._apply_info(r)
             self._emit()
             if then:
                 then()
+        threading.Thread(target=work, daemon=True).start()
 
-        def failed(e):
-            self._running = False
-            self.scanning = False
-            self._set_reader(None)
-            self.state, self.state_name = 'failed', str(e)
-            self._emit()
-        in_background(lambda: script('info'), done, failed)
+    def _read(self):
+        """(state, name or error, reader dict or None) for what's attached now. Keeps the open connection."""
+        found = detect.candidates()
+        keys = [k for k, _ in found]
+        if self.conn is not None and self.conn_key not in keys:
+            self.conn = self.conn_key = None        # unplugged: drop it without releasing
+        if self.conn is None:
+            if not found:
+                return 'none', '', None
+            # an MTP Kindle over a drive, a known reader over others
+            found.sort(key=lambda kl: (kl[0][0] not in ('mtp', 'wpd', 'gvfs'), detect.kind_of(kl[1]) == 'generic'))
+            key, label = found[0]
+            if self.state == 'ejected' and self.ejected_key == key:
+                return 'ejected', self.state_name, None
+            try:
+                self.conn = detect.open_reader(key, label)
+                self.conn_key = key
+            except detect.Busy as e:
+                self.busy_kind = detect.kind_of(str(e))
+                return 'busy', str(e) or 'Your e-reader', None
+        st = self.conn
+        files = st.files()
+        books = ops.list_books(st)
+        ops.save_title_cache()
+        total, free = st.space
+        koreader = st.kind.startswith('kindle') and ops.has_koreader(st, [lp for lp, _ in files])
+        return 'connected', st.name, dict(name=st.name, kind=st.kind, driver=type(st).__name__,
+                                          formats=ops.kind_formats(st.kind, koreader), total=total, free=free,
+                                          books=books)
 
-    def _apply_info(self, r):
-        st = r.get('status')
-        if st == 'ok':
-            found = reader_from(r)
-            if self.state == 'ejected' and self.state_name == found['name']:
-                return
-            self._set_reader(found)
-            self.state = 'connected'
-        elif st == 'no_device':
+    def _rescan_blocking(self, emit=True):
+        """Reads the reader again (any thread)."""
+        try:
+            with self._io:
+                state, name, reader = self._read()
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.conn = self.conn_key = None
+            state, name, reader = 'failed', "Couldn't read the e-reader: %s" % e, None
+        if state == 'ejected':
             self._set_reader(None)
-            self.state = 'none'
-        elif st == 'open_failed':
-            self._set_reader(None)
-            self.busy_kind = r.get('kind') or 'generic'
-            self.state, self.state_name = 'busy', r.get('name') or 'Your e-reader'
         else:
-            self._set_reader(None)
-            self.state, self.state_name = 'failed', r.get('error') or "Calibre couldn't read the e-reader."
+            self.state, self.state_name = state, name
+            self._set_reader(reader)
+        if emit:
+            self._emit()
 
     def _set_reader(self, reader):
         old = self.reader
@@ -384,7 +351,9 @@ class Devices(QObject):
         """What one-click Import copies: books only on the reader that aren't locked, one copy per title
         (EPUB, then Kindle formats, then PDF)."""
         rank = {'epub': 0, 'kepub': 0, 'azw3': 1, 'mobi': 2, 'azw': 3, 'pdf': 9}
-        return one_per_title([b for b in self.only_on_reader() if not self.likely_locked(b)],
+        convert = can_convert()
+        return one_per_title([b for b in self.only_on_reader() if not self.likely_locked(b)
+                              and (convert or not needs_conversion(b))],
                              lambda b: lib.key(display_title(b)), lambda b: rank.get(fmt(b), 5))
 
     def to_send(self):
@@ -444,15 +413,6 @@ class Devices(QObject):
         self.working = line
         self._emit()
 
-    def _rescan_blocking(self):
-        """Reads the reader again from a worker thread."""
-        try:
-            r = script('info')
-        except Exception as e:
-            r = dict(status='error', error=str(e))
-        self._apply_info(r)
-        self._emit()
-
     def _begin(self):
         with self._lock:
             if self._running or self.reader is None:
@@ -466,6 +426,21 @@ class Devices(QObject):
         self._running = False
         self._emit()
 
+    def _upload(self, items, log):
+        """Converts as needed and copies. Returns (sent, titles it can't open, titles that need Calibre). Hold _io."""
+        reader = self.reader
+        ready, skipped, need = [], [], []
+        for it in items:
+            f, why = prepare(it, reader, log)
+            if f is None:
+                (need if why == 'calibre' else skipped).append('“%s”' % it['title'])
+                continue
+            ready.append(dict(it, file=f))
+        if not ready:
+            return 0, skipped, need
+        sent = ops.upload(self.conn, ready, log)
+        return sent, skipped, need
+
     def sync(self, add, remove, note=''):
         """Removes and adds books in one go, then reads the reader again. Call from a worker thread."""
         if not self._begin():
@@ -473,24 +448,29 @@ class Devices(QObject):
         reader = self.reader
         notes = []
         try:
-            if remove:
-                self._say('Removing %d book%s…' % (len(remove), '' if len(remove) == 1 else 's'))
-                r = script('delete', [b['path'] for b in remove])
-                if r.get('status') != 'deleted':
-                    raise Failure(r.get('error') or "Couldn't remove books.")
-                notes.append('removed %d' % len(remove))
-            if add:
-                sent, skipped = upload([send_item(b) for b in add], reader, self._say)
-                if sent:
-                    notes.append('added %d' % sent)
-                if skipped:
-                    notes.append('skipped %s (format not supported)' % ', '.join(skipped))
+            with self._io:
+                if remove:
+                    self._say('Removing %d book%s…' % (len(remove), '' if len(remove) == 1 else 's'))
+                    ops.delete(self.conn, [b['path'] for b in remove])
+                    notes.append('removed %d' % len(remove))
+                need = []
+                if add:
+                    sent, skipped, need = self._upload([send_item(b) for b in add], self._say)
+                    if sent:
+                        notes.append('added %d' % sent)
+                    if skipped:
+                        notes.append('skipped %s (format not supported)' % ', '.join(skipped))
             msg = 'Done: ' + ', '.join(notes) + '.' if notes else 'Nothing to change.'
             msg += note
-            if is_kindle(reader) and add:
+            if need:
+                msg += " The %s can't open %s as EPUB%s. %s" % (short_name(reader), ', '.join(need),
+                                                                's' if len(need) > 1 else '', NEEDS_CALIBRE)
+            if is_kindle(reader) and add and can_convert():
                 msg += ' Covers show once the Kindle is unplugged.'
             self.message = msg
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             self.message = str(e)
         self.working = None
         self._running = False
@@ -502,36 +482,48 @@ class Devices(QObject):
         name = self.reader['name']
         self._say('Ejecting…')
         try:
-            script('eject')
+            with self._io:
+                self.conn.eject()
         except Exception:
             pass
         self.busy_kind = self.reader['kind'] if self.reader else 'generic'
+        self.ejected_key = self.conn_key
+        self.conn = self.conn_key = None
         self._set_reader(None)
         self.state, self.state_name = 'ejected', name
         self._end()
 
     def import_books(self, books):
-        """Copies books from the reader into the library. Kindle books and other formats become EPUBs; store
-        books locked with DRM can't be copied. Returns the library books added. Call from a worker thread."""
+        """Copies books from the reader into the library. EPUBs and PDFs come as they are; Kindle books and
+        other formats become EPUBs through Calibre; store books locked with DRM can't be copied.
+        Returns the library books added. Call from a worker thread."""
         if not books or not self._begin():
             return []
         L = lib.shared()
         dest = tempfile.mkdtemp(prefix='bookforge-import-')
         try:
-            self._say('Copying from the reader…')
-            r = script('fetch', dict(dest=dest, paths=[b['path'] for b in books]), self._say)
-            if r.get('status') != 'fetched':
-                raise Failure(r.get('error') or "Couldn't copy from the reader.")
-            by_path = {b['path']: b for b in books}
-
             def name(path):
-                b = by_path.get(path)
-                return '“%s”' % (display_title(b) if b else path.replace('\\', '/').rsplit('/', 1)[-1])
-            added, already, locked, failed = [], 0, [], [name(f['path']) for f in r.get('failed') or []]
-            for f in r.get('files') or []:
-                path = f.get('file')
-                if not path:
-                    continue
+                b = next((x for x in books if x['path'] == path), None)
+                return '“%s”' % (display_title(b) if b else path.rsplit('/', 1)[-1])
+            added, already, locked, failed, need = [], 0, [], [], []
+            todo = []
+            with self._io:
+                for b in books:
+                    if needs_conversion(b) and not can_convert():
+                        need.append(name(b['path']))
+                    elif ops.locked(self.conn, b['path']):
+                        # the file's own header says it's encrypted: don't copy it at all
+                        locked.append(name(b['path']))
+                        self.locked.add(b['path'])
+                    else:
+                        todo.append(b)
+                settings.set('lockedReaderBooks', sorted(self.locked))
+                self._say('Copying from the reader…')
+                files, fails = ops.fetch(self.conn, [b['path'] for b in todo], dest, self._say)
+            failed += [name(f['path']) for f in fails]
+            by_path = {b['path']: b for b in todo}
+            for f in files:
+                path = f['file']
                 d = by_path.get(f['path'])
                 # a book with this title may have come into the library meanwhile (or earlier in this batch)
                 if d and any(b['id'] == d.get('uuid') or lib.same(b['title'], display_title(d)) for b in L.books):
@@ -570,11 +562,16 @@ class Devices(QObject):
                 one = len(locked) == 1
                 notes.append("%s %s locked with DRM, so %s can't be copied." % (
                     ', '.join(locked), 'is a store book' if one else 'are store books', 'it' if one else 'they'))
+            if need:
+                notes.append('%s %s in a Kindle format; install Calibre (free, calibre-ebook.com) to bring %s in as EPUB.'
+                             % (', '.join(need), 'is' if len(need) == 1 else 'are', 'it' if len(need) == 1 else 'them'))
             if failed:
                 notes.append("Couldn't import %s." % ', '.join(failed))
             self.message = ' '.join(notes)
             return added
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             self.message = str(e)
             return []
         finally:
@@ -592,6 +589,9 @@ class Devices(QObject):
             return
         books = self.to_import()
         store = sum(1 for b in self.only_on_reader() if self.likely_locked(b))
+        need = 0 if can_convert() else sum(1 for b in self.only_on_reader() if not self.likely_locked(b) and needs_conversion(b))
+        need_note = (' %d book%s in a Kindle format; install Calibre (free, calibre-ebook.com) to bring %s in as EPUB.'
+                     % (need, ' is' if need == 1 else 's are', 'it' if need == 1 else 'them')) if need else ''
 
         def store_note(other):
             if not store:
@@ -599,12 +599,12 @@ class Devices(QObject):
             return ' Left %d%s store book%s on the %s (locked with DRM).' % (
                 store, ' other' if other else '', '' if store == 1 else 's', short_name(reader))
         if not books:
-            self.message = 'Every book on the %s is already in your library.%s' % (short_name(reader), store_note(False))
+            self.message = 'Every book on the %s is already in your library.%s%s' % (short_name(reader), store_note(False), need_note)
             self._emit()
             return
         before = len(self.locked)
         self.import_books(books)
-        self.message = (self.message or '') + store_note(len(self.locked) > before)
+        self.message = (self.message or '') + store_note(len(self.locked) > before) + need_note
         self._emit()
 
     def send_new(self):
@@ -616,19 +616,21 @@ class Devices(QObject):
         L = lib.shared()
         books = self.to_send()
         already = sum(1 for b in L.books if self.match(b) is not None)
+        waiting = [b for b in L.books if self.match(b) is None and L.format(b) == 'epub' and not accepts(reader, 'epub')]
+        need_note = (" %d EPUB%s can't go on the %s without converting. %s" % (
+            len(waiting), '' if len(waiting) == 1 else 's', short_name(reader), NEEDS_CALIBRE)) if waiting else ''
         if not books:
-            self.message = 'Every book in your library is already on the %s.' % short_name(reader)
+            self.message = ('Every book in your library is already on the %s.' % short_name(reader)) if not waiting else need_note.strip()
             self._emit()
             return
         size = sum(os.path.getsize(L.url(b)) for b in books if os.path.exists(L.url(b)))
         if reader['free'] > 0 and size > reader['free'] - 20_000_000:
-            from calibre import human_readable
             self.message = ('Not enough space on the %s: these books need about %s and %s is free. '
                             'Tick fewer books below and press Sync.' % (short_name(reader), human_readable(size), human_readable(reader['free'])))
             self._emit()
             return
         note = ' %d %s already on it.' % (already, 'was' if already == 1 else 'were') if already else ''
-        self.sync(books, [], note)
+        self.sync(books, [], note + need_note)
 
 
 _shared = None

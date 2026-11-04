@@ -187,11 +187,6 @@ final class BookJob {
     func sendToKindle(skipCalibreCheck: Bool = false) {
         guard let book = epub, !busy else { return }
         if sendMethod == .wifi { sendByEmail(book); return }
-        guard Kindle.calibreInstalled else {
-            phase = .failed
-            status = "Calibre is needed for USB e-readers. Install it from calibre-ebook.com, or switch to Wi-Fi."
-            return
-        }
         if !skipCalibreCheck && Kindle.calibreAppRunning {
             askQuitCalibre = true
             return

@@ -3,8 +3,8 @@ for scanned pages. Coordinates are normalised 0…1 with y growing downwards."""
 import io, os, re, subprocess, tempfile
 from concurrent.futures import ThreadPoolExecutor
 
-from .library import pdf_info, render_page
-from .util import Failure, no_window, pdf_tools, tesseract
+from .library import PDFIUM, pdf_info, render_page
+from .util import Failure, no_window, tesseract
 
 
 class Line:
@@ -42,38 +42,36 @@ TESS_LANGS = {'id': ['ind', 'eng'], 'en': ['eng'], 'ja': ['jpn', 'eng']}
 
 
 def page_count(pdf):
-    try:
-        return int(pdf_info(pdf).get('Pages', '0'))
-    except ValueError:
-        return 0
+    return int(pdf_info(pdf).get('Pages') or 0)
 
 
 def text_layers(pdf):
-    """{page index: [Line]} for pages whose text layer has real text."""
-    from lxml import etree
-    _, _, pdftohtml = pdf_tools()
+    """{page index: [Line]} for pages whose text layer has real text (pdfium's text segments, one per run of a line)."""
+    with PDFIUM:
+        return _text_layers(pdf)
+
+
+def _text_layers(pdf):
+    import pypdfium2 as pdfium
     out = {}
-    with tempfile.TemporaryDirectory() as d:
-        base = os.path.join(d, 'out')
-        subprocess.run([pdftohtml, '-xml', '-i', '-q', '-hidden', '-nodrm', '-enc', 'UTF-8', '-nomerge', pdf, base],
-                       capture_output=True, **no_window())
-        xml = base + '.xml'
-        if not os.path.exists(xml):
-            return out
-        root = etree.parse(xml, etree.XMLParser(recover=True, huge_tree=True)).getroot()
-    for page in root.iter('page'):
-        i = int(page.get('number', '1')) - 1
-        W, H = float(page.get('width') or 1), float(page.get('height') or 1)
-        lines = []
-        for t in page.iter('text'):
-            s = ''.join(t.itertext()).strip()
-            if not s:
-                continue
-            x, y = float(t.get('left', 0)), float(t.get('top', 0))
-            w, h = float(t.get('width', 0)), float(t.get('height', 0))
-            lines.append(Line(s, x / W, (x + w) / W, y / H, (y + h) / H))
-        if sum(len(l.text) for l in lines) > 40:
-            out[i] = lines
+    doc = pdfium.PdfDocument(pdf)
+    try:
+        for i in range(len(doc)):
+            page = doc[i]
+            W, H = page.get_size()
+            tp = page.get_textpage()
+            lines = []
+            for k in range(tp.count_rects()):
+                l, b, r, t = tp.get_rect(k)
+                s = tp.get_text_bounded(l, b, r, t).replace('\r', ' ').replace('\n', ' ').strip()
+                if s:
+                    lines.append(Line(s, l / W, r / W, (H - t) / H, (H - b) / H))
+            tp.close()
+            page.close()
+            if sum(len(x.text) for x in lines) > 40:
+                out[i] = lines
+    finally:
+        doc.close()
     return out
 
 
@@ -194,15 +192,8 @@ def read_initial(pdf, index, region, language):
     if not tesseract():
         return None
     try:
-        from PIL import Image
-        jpeg = render_page(pdf, index, 300, gray=True)
-        img = Image.open(io.BytesIO(jpeg))
-        W, H = img.size
-        x, y, w, h = region
-        crop = img.crop((int(x * W), int(y * H), int((x + w) * W), int((y + h) * H)))
-        buf = io.BytesIO()
-        crop.save(buf, 'JPEG')
-        text = ''.join(l.text for l in ocr_image(buf.getvalue(), ocr_languages(language)))
+        jpeg = render_page(pdf, index, 300, gray=True, crop=region)
+        text = ''.join(l.text for l in ocr_image(jpeg, ocr_languages(language)))
     except Exception:
         return None
     c = next((ch for ch in text if ch.isalpha()), None)

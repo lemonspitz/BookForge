@@ -1,18 +1,20 @@
-Book Forge 1.3 for Linux
+Book Forge 1.4 for Linux
 ========================
 
-1. Install Calibre (free). The official installer is best:
-     sudo -v && wget -nv -O- https://download.calibre-ebook.com/linux-installer.sh | sudo sh /dev/stdin
-   Your distribution's calibre package also works if it includes Qt WebEngine (it does on Debian, Ubuntu and Fedora).
-2. Unzip this folder somewhere it can stay, for example ~/Applications/Book Forge.
-3. Run ./install.sh to add Book Forge to your applications menu (or start it with ./book-forge.sh).
+1. Unpack this folder somewhere it can stay, for example ~/Applications/Book Forge.
+2. Run ./install.sh to add Book Forge to your applications menu (or start it with ./book-forge).
 
-For scanned PDFs (optional): install Tesseract with the languages you need, e.g.
-     sudo apt install tesseract-ocr tesseract-ocr-ind tesseract-ocr-jpn
-PDFs that already contain text don't need it.
+Nothing else is needed for your library, the reader, PDF to EPUB and translation.
+For MTP e-readers (Kindles since 2021, Boox) your system needs libmtp, which desktop distributions already have
+(package libmtp9 or libmtp). If your desktop mounts the Kindle itself (it appears in the file manager), Book Forge
+uses that mount.
 
-Kindles connect over MTP. If yours doesn't show up, make sure no other program (a file manager, gvfs) has
-mounted it, unplug it and plug it in again.
+Optional:
+- Calibre (calibre-ebook.com): only to turn EPUBs into Kindle books (so they appear in the Kindle's own
+  library with covers) and to import Kindle-format books (AZW3, MOBI) as EPUB. A Kindle running KOReader opens
+  EPUBs without it, and Email to Kindle converts them too.
+- Tesseract OCR with your languages, for scanned PDFs:  sudo apt install tesseract-ocr tesseract-ocr-ind tesseract-ocr-jpn
+
 Your library is kept in ~/Documents/Book Forge Library, the same layout as the Mac app.
 The Claude API key and email password go into your keyring (needs secret-tool, from libsecret-tools);
 without it they are kept in ~/.config/book-forge, readable only by you.

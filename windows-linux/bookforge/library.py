@@ -1,11 +1,11 @@
 """The catalogue: book files in one folder next to library.json and a .covers folder of thumbnails.
 Same layout as the Mac app, so one library folder works with both."""
-import datetime, io, os, posixpath, re, subprocess, tempfile, unicodedata, uuid, zipfile
+import datetime, io, os, posixpath, re, threading, unicodedata, uuid, zipfile
 from urllib.parse import unquote
 
-from qt.core import QObject, QPixmap, pyqtSignal
+from .qt import QObject, QPixmap, pyqtSignal
 
-from .util import Failure, documents_dir, no_window, pdf_tools, settings
+from .util import Failure, documents_dir, settings, trash
 
 FORMATS = ('epub', 'pdf')
 
@@ -89,33 +89,52 @@ def resolve(href, base):
     return posixpath.normpath(posixpath.join(posixpath.dirname(base), clean)).lstrip('./') if clean else base
 
 
-def render_page(pdf, index, dpi, gray=False):
-    """A page of a PDF as JPEG bytes (white background)."""
-    _, pdftoppm, _ = pdf_tools()
-    with tempfile.TemporaryDirectory() as d:
-        args = [pdftoppm, '-r', str(dpi), '-f', str(index + 1), '-l', str(index + 1), '-jpeg', '-jpegopt', 'quality=85']
-        if gray:
-            args.append('-gray')
-        subprocess.run(args + [pdf, os.path.join(d, 'p')], capture_output=True, **no_window())
-        files = [f for f in os.listdir(d) if f.endswith('.jpg')]
-        if not files:
+# pdfium must only be used by one thread at a time
+PDFIUM = threading.RLock()
+
+
+def render_page(pdf, index, dpi=None, gray=False, crop=None, width=None, fmt='JPEG'):
+    """A page of a PDF as image bytes (white background), at `dpi` or `width` pixels wide.
+    `crop` is (x, y, w, h), normalised and top-down."""
+    with PDFIUM:
+        return _render(pdf, index, dpi, gray, crop, width, fmt)
+
+
+def _render(pdf, index, dpi, gray, crop, width, fmt):
+    import pypdfium2 as pdfium
+    doc = pdfium.PdfDocument(pdf)
+    try:
+        if not 0 <= index < len(doc):
             return None
-        with open(os.path.join(d, files[0]), 'rb') as f:
-            return f.read()
+        page = doc[index]
+        scale = width / page.get_width() if width else dpi / 72
+        img = page.render(scale=scale, grayscale=gray).to_pil()
+        if crop:
+            W, H = img.size
+            x, y, w, h = crop
+            img = img.crop((int(x * W), int(y * H), int((x + w) * W), int((y + h) * H)))
+        out = io.BytesIO()
+        img.convert('L' if gray else 'RGB').save(out, fmt, quality=85)
+        return out.getvalue()
+    except Exception:
+        return None
+    finally:
+        doc.close()
 
 
 def pdf_info(pdf):
-    pdfinfo, _, _ = pdf_tools()
-    try:
-        out = subprocess.run([pdfinfo, '-enc', 'UTF-8', pdf], capture_output=True, **no_window()).stdout.decode('utf-8', 'replace')
-    except Exception:
-        return {}
-    info = {}
-    for line in out.splitlines():
-        if ':' in line:
-            k, v = line.split(':', 1)
-            info[k.strip()] = v.strip()
-    return info
+    """{'Title', 'Author', 'Pages'} from a PDF."""
+    import pypdfium2 as pdfium
+    with PDFIUM:
+        try:
+            doc = pdfium.PdfDocument(pdf)
+        except Exception:
+            return {}
+        try:
+            meta = doc.get_metadata_dict(skip_empty=True)
+            return {'Title': (meta.get('Title') or '').strip(), 'Author': (meta.get('Author') or '').strip(), 'Pages': len(doc)}
+        finally:
+            doc.close()
 
 
 def read_meta(path):
@@ -311,10 +330,9 @@ class Library(QObject):
 
     def remove(self, ids):
         """Moves the books' files to the Trash / Recycle Bin."""
-        from calibre.utils.recycle_bin import delete_file
         for b in [b for b in self.books if b['id'] in ids]:
             try:
-                delete_file(self.url(b))
+                trash(self.url(b))
             except Exception:
                 pass
             try:

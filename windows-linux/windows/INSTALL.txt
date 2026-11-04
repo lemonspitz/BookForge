@@ -1,16 +1,20 @@
-Book Forge 1.3 for Windows
+Book Forge 1.4 for Windows
 ==========================
 
-1. Install Calibre (free) from https://calibre-ebook.com/download_windows
-   Book Forge runs on Calibre's built-in Python and uses its e-reader drivers and converters.
-2. Unzip this folder somewhere it can stay, for example Documents\Book Forge.
-3. Double-click Install.cmd. Book Forge appears in the Start menu and on the desktop.
-   (Or just double-click "Book Forge.cmd".)
+1. Unzip this folder somewhere it can stay, for example Documents\Book Forge.
+2. Double-click Install.cmd to add Book Forge to the Start menu and the desktop
+   (or just double-click "Book Forge.exe"). Windows may warn that the app is from an unknown publisher:
+   choose More info > Run anyway.
 
-For scanned PDFs (optional): install Tesseract OCR from https://github.com/UB-Mannheim/tesseract/wiki
-and tick the Indonesian and Japanese languages in its installer. PDFs that already contain text don't need it.
+Nothing else is needed for your library, the reader, PDF to EPUB, translation, and Kindle/Kobo sync over USB.
+
+Optional:
+- Calibre (calibre-ebook.com): only to turn EPUBs into Kindle books (so they appear in the Kindle's own
+  library with covers) and to import Kindle-format books (AZW3, MOBI) as EPUB. A Kindle running KOReader opens
+  EPUBs without it, and Email to Kindle converts them too.
+- Tesseract OCR (github.com/UB-Mannheim/tesseract/wiki, with the Indonesian and Japanese languages): only for
+  scanned PDFs.
 
 Your library is kept in Documents\Book Forge Library, the same layout as the Mac app.
-Close Calibre's own window while Book Forge talks to your Kindle: only one program can hold the connection.
 Your Claude API key and email password are kept in Windows Credential Manager.
 If something goes wrong, the log is in %LOCALAPPDATA%\Book Forge\Cache\book-forge.log

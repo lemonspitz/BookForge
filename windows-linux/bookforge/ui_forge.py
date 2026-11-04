@@ -2,7 +2,7 @@
 import os, smtplib, ssl
 from email.message import EmailMessage
 
-from qt.core import (QButtonGroup, QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout,
+from .qt import (QButtonGroup, QCheckBox, QComboBox, QFileDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout,
                      QLabel, QLineEdit, QMessageBox, QPixmap, QProgressBar, QPushButton, QRadioButton, QScrollArea,
                      QSpinBox, QTextEdit, Qt, QToolButton, QVBoxLayout, QWidget)
 

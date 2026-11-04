@@ -1,12 +1,11 @@
 """The e-reader screen: what's on it, one-click Import and Send, and tick-to-sync."""
-from calibre import human_readable
-from qt.core import (QBrush, QColor, QFont, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QProgressBar, QPushButton,
+from .qt import (QBrush, QColor, QFont, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QProgressBar, QPushButton,
                      QStackedWidget, Qt, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from . import devices as dev
 from . import library as lib
 from .deviceart import DeviceArt
-from .util import calibre_app_running
+from .util import calibre_app_running, human_readable
 
 ROLE = Qt.ItemDataRole.UserRole
 

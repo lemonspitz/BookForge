@@ -1,5 +1,5 @@
 """A drawing of the connected e-reader, shaped after its family, with a book cover on its screen."""
-from qt.core import QBrush, QColor, QLinearGradient, QPainter, QPen, QRectF, QSize, QWidget, Qt
+from .qt import QBrush, QColor, QLinearGradient, QPainter, QPen, QRectF, QSize, QWidget, Qt
 
 # aspect (w/h), body grey or rgb, corner (x width), inset top/left/bottom/right (x width), controls
 SPECS = {

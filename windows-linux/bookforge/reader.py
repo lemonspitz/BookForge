@@ -3,10 +3,10 @@ import json, os, re, shutil, zipfile
 from urllib.parse import unquote
 
 from lxml import etree
-from qt.core import (QAction, QActionGroup, QApplication, QColor, QHBoxLayout, QKeySequence, QLabel, QListWidget,
+from .qt import (QAction, QActionGroup, QApplication, QColor, QHBoxLayout, QKeySequence, QLabel, QListWidget,
                      QListWidgetItem, QMainWindow, QMenu, QPalette, QPixmap, QScrollArea, QShortcut, QSize, QSlider, Qt,
                      QTimer, QToolBar, QToolButton, QUrl, QVBoxLayout, QWidget, QDesktopServices, QSpinBox, QDialog)
-from qt.webengine import QWebEnginePage, QWebEngineScript, QWebEngineView
+from .qt import QWebEnginePage, QWebEngineScript, QWebEngineView
 
 from . import library as lib
 from .util import Failure, cache_dir, in_background, settings
@@ -360,7 +360,7 @@ class EPUBReader(QMainWindow):
 
 
 class PDFReader(QMainWindow):
-    """A PDF page by page, rendered with Calibre's pdftoppm (there is no PDF engine in Calibre's Qt)."""
+    """A PDF page by page, rendered with pdfium."""
 
     def __init__(self, book):
         super().__init__()
@@ -420,15 +420,7 @@ class PDFReader(QMainWindow):
         path = self.path
 
         def render():
-            from .library import pdf_tools
-            import subprocess, tempfile
-            from .util import no_window
-            _, pdftoppm, _ = pdf_tools()
-            with tempfile.TemporaryDirectory() as d:
-                subprocess.run([pdftoppm, '-f', str(i + 1), '-l', str(i + 1), '-scale-to-x', str(int(width * dpr)),
-                                '-scale-to-y', '-1', '-png', path, os.path.join(d, 'p')], capture_output=True, **no_window())
-                files = [f for f in os.listdir(d) if f.endswith('.png')]
-                return open(os.path.join(d, files[0]), 'rb').read() if files else None
+            return lib.render_page(path, i, width=int(width * dpr), fmt='PNG')
 
         def show(data):
             if token != self._token or not data:

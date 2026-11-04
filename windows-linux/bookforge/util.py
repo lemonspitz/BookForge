@@ -1,7 +1,9 @@
 """Paths, settings, external tools and the stored API key, for Windows, Linux (and macOS, for testing)."""
 import json, os, shutil, subprocess, sys, threading
 
-from calibre.constants import iswindows, ismacos
+iswindows = sys.platform == 'win32'
+ismacos = sys.platform == 'darwin'
+islinux = not iswindows and not ismacos
 
 APP = 'Book Forge'
 
@@ -35,7 +37,7 @@ def cache_dir():
 
 
 def documents_dir():
-    from qt.core import QStandardPaths
+    from .qt import QStandardPaths
     d = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation)
     return d or os.path.expanduser('~')
 
@@ -70,27 +72,38 @@ settings = Settings()
 # MARK: - External programs
 
 def calibre_exe(name):
-    """A Calibre command-line tool (calibre-debug, ebook-convert, ebook-meta)."""
-    from calibre.utils.ipc.launch import exe_path
-    p = exe_path(name)
-    if isinstance(p, (list, tuple)):
-        p = p[0]
-    if os.path.isabs(p) and os.path.exists(p):
-        return p
+    """A Calibre command-line tool (ebook-convert, ebook-meta, calibre-debug), or None when Calibre isn't
+    installed. Book Forge only needs it to turn EPUBs into Kindle books and Kindle books into EPUBs.
+    BOOKFORGE_NO_CALIBRE hides it (testing)."""
+    if os.environ.get('BOOKFORGE_NO_CALIBRE'):
+        return None
+    exe = name + '.exe' if iswindows else name
+    places = []
     if iswindows:
         for base in (os.environ.get('ProgramFiles', r'C:\Program Files'), os.environ.get('ProgramFiles(x86)', '')):
-            cand = os.path.join(base, 'Calibre2', name + '.exe')
-            if base and os.path.exists(cand):
-                return cand
-    return shutil.which(name) or p
+            if base:
+                places.append(os.path.join(base, 'Calibre2', exe))
+    elif ismacos:
+        places.append('/Applications/calibre.app/Contents/MacOS/' + name)
+    else:
+        places.append('/opt/calibre/' + name)
+    for p in places:
+        if os.path.exists(p):
+            return p
+    return shutil.which(exe)
 
 
-def pdf_tools():
-    """(pdfinfo, pdftoppm, pdftohtml) from Calibre's bundle."""
-    from calibre.ebooks.metadata.pdf import get_tools
-    from calibre.ebooks.pdf.pdftohtml import PDFTOHTML
-    pdfinfo, pdftoppm = get_tools()
-    return pdfinfo, pdftoppm, PDFTOHTML
+def human_readable(n):
+    for unit in ('B', 'KB', 'MB', 'GB', 'TB'):
+        if abs(n) < 1000 or unit == 'TB':
+            return ('%d %s' if unit == 'B' else '%.1f %s') % (n, unit)
+        n /= 1000
+
+
+def trash(path):
+    """Moves a file to the Recycle Bin / Trash."""
+    from send2trash import send2trash
+    send2trash(path)
 
 
 def tesseract():
@@ -131,7 +144,7 @@ def reveal(path):
     elif ismacos:
         subprocess.Popen(['open', '-R', path])
     else:
-        from qt.core import QDesktopServices, QUrl
+        from .qt import QDesktopServices, QUrl
         QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(path)))
 
 
@@ -153,8 +166,14 @@ def calibre_app_running():
 def quit_calibre():
     """Asks the Calibre app to shut down; returns True once it has."""
     import time
+    exe = calibre_exe('calibre-debug')
     try:
-        subprocess.run([calibre_exe('calibre-debug'), '-s'], capture_output=True, timeout=30, **no_window())
+        if exe:
+            subprocess.run([exe, '-s'], capture_output=True, timeout=30, **no_window())
+        elif iswindows:
+            subprocess.run(['taskkill', '/IM', 'calibre.exe'], capture_output=True, **no_window())
+        else:
+            subprocess.run(['pkill', '-TERM', '-x', 'calibre'], capture_output=True)
     except Exception:
         pass
     for _ in range(15):
@@ -274,7 +293,7 @@ def save_api_key(key):
 
 def in_background(fn, done=None, failed=None):
     """Runs fn() on a thread; done(result) or failed(exception) run back on the GUI thread."""
-    from qt.core import QObject, pyqtSignal
+    from .qt import QObject, pyqtSignal
 
     class Relay(QObject):
         ok = pyqtSignal(object)
@@ -309,7 +328,7 @@ class Poster:
     """Calls a function on the GUI thread from any thread (progress updates)."""
 
     def __init__(self, fn):
-        from qt.core import QObject, pyqtSignal
+        from .qt import QObject, pyqtSignal
 
         class Relay(QObject):
             sig = pyqtSignal(object)

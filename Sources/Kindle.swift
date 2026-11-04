@@ -1,7 +1,7 @@
 import Foundation
 import AppKit
 
-/// Kindle email delivery and the Calibre install that USB e-readers go through (macOS has no built-in MTP support).
+/// Kindle email delivery, and the Calibre install used (when present) to convert books to and from Kindle formats.
 enum Kindle {
     static let calibreBin = "/Applications/calibre.app/Contents/MacOS"
     static let calibreBundleID = "net.kovidgoyal.calibre"
@@ -36,7 +36,11 @@ enum Kindle {
         }
     }
 
-    static var calibreInstalled: Bool { FileManager.default.isExecutableFile(atPath: "\(calibreBin)/ebook-convert") }
+    /// Calibre is only needed to convert books to and from Kindle formats. BOOKFORGE_NO_CALIBRE hides it (testing).
+    static var calibreInstalled: Bool {
+        ProcessInfo.processInfo.environment["BOOKFORGE_NO_CALIBRE"] == nil
+            && FileManager.default.isExecutableFile(atPath: "\(calibreBin)/ebook-convert")
+    }
 
     static var calibreAppRunning: Bool {
         NSRunningApplication.runningApplications(withBundleIdentifier: calibreBundleID)

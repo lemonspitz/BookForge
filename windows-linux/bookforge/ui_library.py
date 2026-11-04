@@ -1,7 +1,7 @@
 """The library grid: covers, reading progress, which books are on the e-reader, and one-click Import/Send."""
 import os
 
-from qt.core import (QAbstractItemView, QAction, QActionGroup, QBrush, QColor, QDialog, QDialogButtonBox, QFileDialog,
+from .qt import (QAbstractItemView, QAction, QActionGroup, QBrush, QColor, QDialog, QDialogButtonBox, QFileDialog,
                      QFont, QFontMetrics, QFormLayout, QComboBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
                      QListWidgetItem, QMenu, QMessageBox, QPainter, QPainterPath, QPen, QPushButton, QRectF, QSize,
                      QStyle, QStyledItemDelegate, Qt, QPointF, QToolButton, QVBoxLayout, QWidget, QLinearGradient, QPalette)

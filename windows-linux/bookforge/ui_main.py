@@ -1,7 +1,7 @@
 """The main window: sidebar (Library, the e-reader, Convert & Translate) and the three screens."""
 import os
 
-from qt.core import (QApplication, QHBoxLayout, QIcon, QLabel, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
+from .qt import (QApplication, QHBoxLayout, QIcon, QLabel, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
                      QSize, QSplitter, QStackedWidget, Qt, QVBoxLayout, QWidget)
 
 from . import VERSION

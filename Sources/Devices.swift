@@ -15,6 +15,9 @@ struct DeviceBook: Codable, Identifiable, Hashable, Sendable {
     var format: String { (fileName as NSString).pathExtension.lowercased() }
     var displayTitle: String { title.isEmpty ? (fileName as NSString).deletingPathExtension : title }
 
+    /// Books that only come into the library as EPUBs through Calibre.
+    var needsConversion: Bool { !["epub", "kepub", "pdf"].contains(((lpath.isEmpty ? path : lpath) as NSString).pathExtension.lowercased()) }
+
     /// Amazon's KFX store books can't be converted or read outside a Kindle.
     var importable: Bool { format != "kfx" }
 
@@ -40,8 +43,10 @@ struct EReader: Equatable, Sendable {
 
     /// Whether a library book in this format can go on the reader (Kindles get EPUBs converted).
     func accepts(_ format: String) -> Bool {
-        if isKindle { return ["epub", "pdf"].contains(format) }
-        return formats.contains(format) || (format == "epub" && formats.contains("azw3"))
+        // EPUBs become Kindle books through Calibre; a Kindle running KOReader opens them as they are
+        let convert = Kindle.calibreInstalled
+        if isKindle { return format == "pdf" || (format == "epub" && (convert || formats.contains("epub"))) }
+        return formats.contains(format) || (format == "epub" && formats.contains("azw3") && convert)
     }
 }
 
@@ -61,6 +66,7 @@ struct SendItem: Sendable {
     var author: String
     var uuid: String
     var language: String
+    var cover: URL?             // for the Kindle's library thumbnail
 
     @MainActor init(_ book: LibraryBook) {
         file = Library.shared.url(book)
@@ -68,6 +74,8 @@ struct SendItem: Sendable {
         author = book.author
         uuid = book.id
         language = book.language
+        let c = Library.shared.coverURL(book)
+        cover = FileManager.default.fileExists(atPath: c.path) ? c : nil
     }
 
     init(file: URL, title: String, author: String, uuid: String, language: String) {
@@ -124,7 +132,6 @@ final class Devices {
     func start() {
         guard !started else { return }
         started = true
-        guard Kindle.calibreInstalled else { state = .noCalibre; return }
         if let port = IONotificationPortCreate(kIOMainPortDefault) {
             IONotificationPortSetDispatchQueue(port, .main)
             let callback: IOServiceMatchingCallback = { _, iterator in
@@ -166,7 +173,6 @@ final class Devices {
     }
 
     func scan() async {
-        guard Kindle.calibreInstalled else { state = .noCalibre; return }
         guard !running else { scheduleScan(); return }
         running = true
         scanning = true
@@ -239,16 +245,21 @@ final class Devices {
                 if r.status != "deleted" { throw Shell.Failure(message: r.error ?? "Couldn't remove books.") }
                 notes.append("removed \(remove.count)")
             }
+            var needCalibre: [String] = []
             if !add.isEmpty {
-                let (sent, skipped) = try await Self.upload(add.map(SendItem.init), to: reader) { line in
+                let (sent, skipped, need) = try await Self.upload(add.map(SendItem.init), to: reader) { line in
                     Task { @MainActor in self.working = line }
                 }
+                needCalibre = need
                 if sent > 0 { notes.append("added \(sent)") }
                 if !skipped.isEmpty { notes.append("skipped \(skipped.joined(separator: ", ")) (format not supported)") }
             }
             message = notes.isEmpty ? "Nothing to change." : "Done: " + notes.joined(separator: ", ") + "."
             message! += note
-            if reader.isKindle && !add.isEmpty { message! += " Covers show once the Kindle is unplugged." }
+            if !needCalibre.isEmpty {
+                message! += " The \(reader.shortName) can't open \(needCalibre.joined(separator: ", ")) as EPUB. " + Self.needsCalibreAdvice
+            }
+            if reader.isKindle && !add.isEmpty && Kindle.calibreInstalled { message! += " Covers show once the Kindle is unplugged." }
         } catch {
             message = error.localizedDescription
         }
@@ -283,17 +294,31 @@ final class Devices {
             running = false
         }
         do {
-            working = "Copying from the reader…"
-            let r = try await Self.script("fetch", FetchRequest(dest: dest.path, paths: books.map(\.path))) { line in
-                Task { @MainActor in self.working = line }
-            }
-            guard r.status == "fetched" else { throw Shell.Failure(message: r.error ?? "Couldn't copy from the reader.") }
             let byPath = Dictionary(books.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
             func name(_ path: String) -> String {
                 let b = byPath[path]
                 return "“\(b?.displayTitle ?? (path as NSString).lastPathComponent)”"
             }
-            var added: [LibraryBook] = [], already = 0, locked: [String] = [], failed: [String] = []
+            var added: [LibraryBook] = [], already = 0, locked: [String] = [], failed: [String] = [], needCalibre: [String] = []
+            // books whose own header says they're encrypted aren't copied at all
+            var todo: [DeviceBook] = []
+            for b in books {
+                if b.needsConversion && !Kindle.calibreInstalled {
+                    needCalibre.append(name(b.path))
+                } else if await Task.detached(operation: { ReaderLink.shared.locked(b.path) }).value == true {
+                    locked.append(name(b.path))
+                    self.locked.insert(b.path)
+                } else {
+                    todo.append(b)
+                }
+            }
+            UserDefaults.standard.set(Array(self.locked), forKey: "lockedReaderBooks")
+            working = "Copying from the reader…"
+            let r = todo.isEmpty ? ScriptResult(status: "fetched", files: [], failed: []) :
+                try await Self.script("fetch", FetchRequest(dest: dest.path, paths: todo.map(\.path))) { line in
+                    Task { @MainActor in self.working = line }
+                }
+            guard r.status == "fetched" else { throw Shell.Failure(message: r.error ?? "Couldn't copy from the reader.") }
             failed += (r.failed ?? []).map { name($0.path) }
             for f in r.files ?? [] {
                 guard let path = f.file else { continue }
@@ -332,6 +357,9 @@ final class Devices {
             if !added.isEmpty { notes.append(added.count == 1 ? "Imported “\(added[0].title)”." : "Imported \(added.count) books.") }
             if already > 0 { notes.append("\(already) \(already == 1 ? "was" : "were") already in the library.") }
             if !locked.isEmpty { notes.append("\(locked.joined(separator: ", ")) \(locked.count == 1 ? "is a store book" : "are store books") locked with DRM, so \(locked.count == 1 ? "it" : "they") can't be copied.") }
+            if !needCalibre.isEmpty {
+                notes.append("\(needCalibre.joined(separator: ", ")) \(needCalibre.count == 1 ? "is" : "are") in a Kindle format; install Calibre (free, calibre-ebook.com) to bring \(needCalibre.count == 1 ? "it" : "them") in as EPUB.")
+            }
             if !failed.isEmpty { notes.append("Couldn't import \(failed.joined(separator: ", ")).") }
             message = notes.joined(separator: " ")
             return added
@@ -391,7 +419,8 @@ final class Devices {
     /// (EPUB, then Kindle formats, then PDF).
     var toImport: [DeviceBook] {
         let rank = ["epub": 0, "kepub": 0, "azw3": 1, "mobi": 2, "azw": 3, "pdf": 9]
-        return Self.onePerTitle(onlyOnReader.filter { !likelyLocked($0) },
+        let convert = Kindle.calibreInstalled
+        return Self.onePerTitle(onlyOnReader.filter { !likelyLocked($0) && (convert || !$0.needsConversion) },
                                 key: { Library.key($0.displayTitle) }, rank: { rank[$0.format] ?? 5 })
     }
 
@@ -422,8 +451,10 @@ final class Devices {
         guard let reader else { return }
         let books = toImport
         let store = onlyOnReader.filter { likelyLocked($0) }.count
+        let need = Kindle.calibreInstalled ? 0 : onlyOnReader.filter { !likelyLocked($0) && $0.needsConversion }.count
         func storeNote(other: Bool) -> String {
-            store == 0 ? "" : " Left \(store)\(other ? " other" : "") store book\(store == 1 ? "" : "s") on the \(reader.shortName) (locked with DRM)."
+            (store == 0 ? "" : " Left \(store)\(other ? " other" : "") store book\(store == 1 ? "" : "s") on the \(reader.shortName) (locked with DRM).")
+                + (need == 0 ? "" : " \(need) book\(need == 1 ? " is" : "s are") in a Kindle format; install Calibre (free, calibre-ebook.com) to bring \(need == 1 ? "it" : "them") in as EPUB.")
         }
         guard !books.isEmpty else {
             message = "Every book on the \(reader.shortName) is already in your library." + storeNote(other: false)
@@ -440,8 +471,10 @@ final class Devices {
         let books = toSend
         let already = Library.shared.books.filter { match($0) != nil }.count
         let alreadyNote = already == 0 ? "" : " \(already) \(already == 1 ? "was" : "were") already on it."
+        let waiting = Library.shared.books.filter { match($0) == nil && $0.format == "epub" && !reader.accepts("epub") }.count
+        let needNote = waiting == 0 ? "" : " \(waiting) EPUB\(waiting == 1 ? "" : "s") can't go on the \(reader.shortName) without converting. " + Self.needsCalibreAdvice
         guard !books.isEmpty else {
-            message = "Every book in your library is already on the \(reader.shortName)."
+            message = waiting == 0 ? "Every book in your library is already on the \(reader.shortName)." : String(needNote.dropFirst())
             return
         }
         let size = books.reduce(Int64(0)) { sum, b in
@@ -451,10 +484,10 @@ final class Devices {
             message = "Not enough space on the \(reader.shortName): these books need about \(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) and \(ByteCountFormatter.string(fromByteCount: reader.free, countStyle: .file)) is free. Tick fewer books below and press Sync."
             return
         }
-        await sync(add: books, remove: [], note: alreadyNote)
+        await sync(add: books, remove: [], note: alreadyNote + needNote)
     }
 
-    // MARK: - Calibre plumbing (callable off the main actor, also from the command line)
+    // MARK: - Reader plumbing (callable off the main actor, also from the command line)
 
     struct ScriptResult: Decodable, Sendable {
         var status: String
@@ -488,54 +521,37 @@ final class Devices {
     }
 
     /// A file fetched from a reader, as something the library can hold: EPUBs and PDFs as they are,
-    /// anything else (AZW3, MOBI, FB2…) converted to EPUB. Throws Calibre's error, which names DRM if that's the problem.
+    /// anything else (AZW3, MOBI, FB2…) converted to EPUB with Calibre. Throws Calibre's error, which names DRM if that's the problem.
     nonisolated static func readable(_ file: URL) throws -> URL {
         if ["epub", "pdf"].contains(file.pathExtension.lowercased()) { return file }
+        guard Kindle.calibreInstalled else { throw Shell.Failure(message: "needs Calibre") }
         let out = file.deletingPathExtension().appendingPathExtension("converted.epub")
         try Shell.run("\(Kindle.calibreBin)/ebook-convert", [file.path, out.path])
         return out
     }
 
+    /// Runs a request against the connected reader (ReaderLink), in the shape device.py's answers had.
     nonisolated static func script(_ command: String, _ payload: (any Encodable & Sendable)? = nil,
                                    progress: (@Sendable (String) -> Void)? = nil) async throws -> ScriptResult {
-        guard let py = Bundle.main.url(forResource: "device", withExtension: "py") else {
-            throw Shell.Failure(message: "device.py is missing from the app bundle.")
-        }
-        return try await Task.detached {
-            var args = ["-e", py.path, command]
-            var tmp: URL?
-            if let payload {
-                let u = FileManager.default.temporaryDirectory.appendingPathComponent("bookforge-\(UUID().uuidString).json")
-                try JSONEncoder().encode(payload).write(to: u)
-                args.append(u.path)
-                tmp = u
+        try await Task.detached {
+            let link = ReaderLink.shared
+            switch command {
+            case "info":
+                return link.info()
+            case "delete":
+                let paths = payload as? [String] ?? []
+                try link.delete(paths)
+                return ScriptResult(status: "deleted", count: paths.count)
+            case "fetch":
+                guard let req = payload as? FetchRequest else { throw Shell.Failure(message: "Nothing to copy.") }
+                let (files, failed) = try link.fetch(req.paths, to: URL(fileURLWithPath: req.dest)) { progress?($0) }
+                return ScriptResult(status: "fetched", files: files, failed: failed)
+            case "eject":
+                link.eject()
+                return ScriptResult(status: "ejected")
+            default:
+                throw Shell.Failure(message: "Unknown request \(command).")
             }
-            defer { if let tmp { try? FileManager.default.removeItem(at: tmp) } }
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: "\(Kindle.calibreBin)/calibre-debug")
-            p.arguments = args
-            let pipe = Pipe()
-            p.standardOutput = pipe
-            p.standardError = pipe
-            try p.run()
-            var result: ScriptResult?
-            var tail: [String] = []
-            for try await line in pipe.fileHandleForReading.bytes.lines {
-                if line.hasPrefix("RESULT ") {
-                    result = try? JSONDecoder().decode(ScriptResult.self, from: Data(line.dropFirst(7).utf8))
-                } else if line.hasPrefix("PROGRESS "),
-                          let obj = try? JSONSerialization.jsonObject(with: Data(line.dropFirst(9).utf8)) as? [String: String],
-                          let msg = obj["message"] {
-                    progress?(msg)
-                } else {
-                    tail = Array((tail + [line]).suffix(8))
-                }
-            }
-            p.waitUntilExit()
-            guard let result else {
-                throw Shell.Failure(message: "Calibre gave no answer:\n" + tail.joined(separator: "\n"))
-            }
-            return result
         }.value
     }
 
@@ -544,8 +560,9 @@ final class Devices {
         let ext = item.file.pathExtension.lowercased()
         let wantsAZW3: Bool
         if reader.isKindle {
-            // Kindles don't open sideloaded EPUBs
+            // the Kindle's own library doesn't open sideloaded EPUBs; KOReader does
             if ext == "pdf" { return item.file }
+            if ext == "epub" && !Kindle.calibreInstalled && reader.formats.contains("epub") { return item.file }
             wantsAZW3 = ext == "epub"
         } else if reader.formats.contains(ext) {
             return item.file
@@ -553,6 +570,7 @@ final class Devices {
             wantsAZW3 = ext == "epub" && reader.formats.contains("azw3")
         }
         guard wantsAZW3 else { return nil }
+        guard Kindle.calibreInstalled else { throw NeedsCalibre() }
 
         let fm = FileManager.default
         let cache = fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -573,32 +591,31 @@ final class Devices {
         return out
     }
 
-    private struct UploadEntry: Codable, Sendable {
-        var file: String
-        var title: String
-        var authors: [String]
-        var uuid: String
-        var language: String
-    }
+    struct NeedsCalibre: Error {}
 
-    /// Converts as needed and uploads. Returns how many were sent and the titles the reader can't open.
+    static let needsCalibreAdvice = "Install Calibre (free, calibre-ebook.com) to convert them, or send them with Email to Kindle, which converts them for you."
+
+    /// Converts as needed and copies. Returns how many were sent, the titles the reader can't open, and the
+    /// titles that need Calibre to be converted.
     nonisolated static func upload(_ items: [SendItem], to reader: EReader,
-                                   log: @escaping @Sendable (String) -> Void) async throws -> (Int, [String]) {
-        var entries: [UploadEntry] = [], skipped: [String] = []
+                                   log: @escaping @Sendable (String) -> Void) async throws -> (Int, [String], [String]) {
+        var ready: [ReaderOps.Item] = [], skipped: [String] = [], needCalibre: [String] = []
         for item in items {
-            guard let file = try prepare(item, for: reader, log: log) else {
-                skipped.append("“\(item.title)”")
-                continue
+            do {
+                guard let file = try prepare(item, for: reader, log: log) else {
+                    skipped.append("“\(item.title)”")
+                    continue
+                }
+                ready.append(ReaderOps.Item(file: file, title: item.title,
+                                            authors: item.author.isEmpty ? [] : item.author.components(separatedBy: " & "),
+                                            uuid: item.uuid, cover: item.cover))
+            } catch is NeedsCalibre {
+                needCalibre.append("“\(item.title)”")
             }
-            entries.append(UploadEntry(file: file.path, title: item.title,
-                                       authors: item.author.isEmpty ? [] : item.author.components(separatedBy: " & "),
-                                       uuid: item.uuid, language: item.language))
         }
-        guard !entries.isEmpty else { return (0, skipped) }
-        log("Copying to \(reader.name)…")
-        let r = try await script("upload", entries, progress: log)
-        guard r.status == "uploaded" else { throw Shell.Failure(message: r.error ?? "The upload failed (\(r.status)).") }
-        return (r.count ?? entries.count, skipped)
+        guard !ready.isEmpty else { return (0, skipped, needCalibre) }
+        let sent = try await Task.detached { try ReaderLink.shared.upload(ready, log: log) }.value
+        return (sent, skipped, needCalibre)
     }
 
     /// Finds the reader and sends books to it in one step (the Convert & Translate screen and the command line).
@@ -612,13 +629,16 @@ final class Devices {
         case "open_failed":
             throw Shell.Failure(message: "\(info.name ?? "The e-reader") is busy. Close Calibre or Android File Transfer, replug it and try again.")
         default:
-            throw Shell.Failure(message: info.error ?? "Calibre couldn't read the e-reader.")
+            throw Shell.Failure(message: info.error ?? "Couldn't read the e-reader.")
         }
         let reader = info.reader
-        let (sent, skipped) = try await upload(items, to: reader, log: log)
-        if sent == 0 { throw Shell.Failure(message: "\(reader.name) can't open this format.") }
+        let (sent, skipped, needCalibre) = try await upload(items, to: reader, log: log)
+        if sent == 0 {
+            throw Shell.Failure(message: needCalibre.isEmpty ? "\(reader.name) can't open this format."
+                                : "\(reader.name) can't open EPUBs. " + needsCalibreAdvice)
+        }
         var msg = "On your \(reader.name)"
-        msg += reader.isKindle ? ", with its cover. You can unplug it." : ". You can unplug it."
+        msg += reader.isKindle && Kindle.calibreInstalled ? ", with its cover. You can unplug it." : ". You can unplug it."
         if !skipped.isEmpty { msg += " Skipped \(skipped.joined(separator: ", ")): format not supported." }
         return msg
     }

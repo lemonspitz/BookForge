@@ -6,12 +6,14 @@ cd "$(dirname "$0")"
 APP="build/Book Forge.app"
 rm -rf build && mkdir -p build/obj "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-swiftc -O -swift-version 5 -target arm64-apple-macos26.0 \
+swiftc -O -swift-version 5 -target arm64-apple-macos26.0 -import-objc-header Sources/MTP.h \
   -framework AppKit -framework SwiftUI -framework PDFKit -framework Vision -framework WebKit -framework IOKit \
   Sources/*.swift -o build/obj/BookForge 2>&1 | grep -v ' warning: ' || true
 test -x build/obj/BookForge
 cp build/obj/BookForge "$APP/Contents/MacOS/BookForge"
-cp Resources/device.py "$APP/Contents/Resources/"
+# libmtp and libusb (LGPL, from Calibre's build) reach MTP readers such as newer Kindles
+mkdir -p "$APP/Contents/Frameworks"
+cp vendor/mac/*.dylib "$APP/Contents/Frameworks/"
 
 ICONSET=build/obj/AppIcon.iconset
 mkdir -p "$ICONSET"
@@ -33,8 +35,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleDisplayName</key><string>Book Forge</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>1.3</string>
-  <key>CFBundleVersion</key><string>5</string>
+  <key>CFBundleShortVersionString</key><string>1.4</string>
+  <key>CFBundleVersion</key><string>6</string>
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHighResolutionCapable</key><true/>

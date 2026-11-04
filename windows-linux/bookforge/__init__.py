@@ -1,2 +1,2 @@
-"""Book Forge for Windows and Linux. Runs inside Calibre's Python (calibre-debug -e run.py)."""
-VERSION = '1.3'
+"""Book Forge for Windows and Linux (and macOS, for testing): a standalone PySide6 app."""
+VERSION = '1.4'
