@@ -75,10 +75,10 @@ def cli(args):
 
 def main():
     args = sys.argv[1:]
+    log_to_file()       # the packaged Windows app has no console: its output goes to the log
     code = cli(args)
     if code is not None:
         return code
-    log_to_file()
     from bookforge.qt import QApplication, QIcon, Qt, QWebEngineView  # noqa: web engine before the application starts
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
     app = QApplication([sys.argv[0]])

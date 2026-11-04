@@ -10,6 +10,19 @@ from .util import calibre_app_running, human_readable
 ROLE = Qt.ItemDataRole.UserRole
 
 
+def rewire(button, slot):
+    """Points a button at a new action (PySide only warns when there was nothing to disconnect)."""
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', RuntimeWarning)
+        try:
+            button.clicked.disconnect()
+        except (TypeError, RuntimeError):
+            pass
+    if slot:
+        button.clicked.connect(slot)
+
+
 def big(label, scale=1.6, bold=True):
     f = label.font()
     f.setPointSizeF(f.pointSizeF() * scale)
@@ -326,10 +339,7 @@ class DeviceView(QWidget):
     def fill_empty(self):
         st = self.D.state
         self.empty_b1.hide()
-        try:
-            self.empty_b1.clicked.disconnect()
-        except TypeError:
-            pass
+        rewire(self.empty_b1, None)
         self.empty_b2.setText('Check Again')
         if st == 'busy':
             name = self.D.state_name
@@ -338,7 +348,7 @@ class DeviceView(QWidget):
             if calibre_app_running():
                 self.empty_text.setText('The Calibre app is using it. Close Calibre so Book Forge can reach the reader.')
                 self.empty_b1.setText('Quit Calibre')
-                self.empty_b1.clicked.connect(lambda: self.D.perform(self.D._rescan_blocking))
+                rewire(self.empty_b1, lambda: self.D.perform(self.D._rescan_blocking))
                 self.empty_b1.show()
             else:
                 self.empty_text.setText('Another app is using it. Close that app, replug the reader and try again.')
@@ -352,22 +362,14 @@ class DeviceView(QWidget):
             self.empty_title.setText(self.D.state_name)
             self.empty_text.setText("It's safe to unplug your %s." % self.D.state_name)
             self.empty_b2.setText('Connect Again')
-            try:
-                self.empty_b2.clicked.disconnect()
-            except TypeError:
-                pass
-            self.empty_b2.clicked.connect(self.connect_again)
+            rewire(self.empty_b2, self.connect_again)
             return
         else:
             self.empty_art.set('generic', dim=True)
             self.empty_title.setText('No e-reader connected')
             self.empty_text.setText('Connect your Kindle, Kobo, PocketBook or other e-reader to this computer with a USB '
                                     'data cable and unlock it. It shows up here by itself.')
-        try:
-            self.empty_b2.clicked.disconnect()
-        except TypeError:
-            pass
-        self.empty_b2.clicked.connect(lambda: self.D.scan())
+        rewire(self.empty_b2, lambda: self.D.scan())
         self.empty_b2.setEnabled(not self.D.scanning)
 
     def connect_again(self):

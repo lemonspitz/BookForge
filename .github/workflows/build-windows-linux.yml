@@ -1,0 +1,88 @@
+# Builds the Windows and Linux apps (windows-linux/) and checks them without a screen or an e-reader.
+name: Build Windows and Linux
+
+on:
+  push:
+    branches: [build-*]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            platform: Windows
+          - os: ubuntu-22.04
+            platform: Linux
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: windows-linux
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Linux libraries Qt needs off screen
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0 libnss3 libasound2 libxcomposite1 libxdamage1 libxrandr2 libxtst6 libmtp9
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Windows Portable Devices bindings
+        if: runner.os == 'Windows'
+        run: python -c "import comtypes.client as c; c.GetModule('portabledeviceapi.dll'); c.GetModule('portabledevicetypes.dll'); import comtypes.gen.PortableDeviceApiLib, comtypes.gen.PortableDeviceTypesLib; print('ok')"
+
+      - name: Check from source
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QTWEBENGINE_CHROMIUM_FLAGS: --no-sandbox
+        run: |
+          python run.py --device; cat "$(python -c 'import sys; sys.path.insert(0, "."); from bookforge.util import cache_dir; print(cache_dir())')/book-forge.log" 2>/dev/null || true
+          python tests/smoke.py ../screenshots-${{ matrix.platform }}
+
+      - name: Package
+        run: pyinstaller --noconfirm --clean bookforge.spec
+
+      - name: Check the package
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then "dist/Book Forge/Book Forge.exe" --device; sleep 5; else "dist/Book Forge/book-forge" --device; fi
+          cat "$(python -c 'import sys; sys.path.insert(0, "."); from bookforge.util import cache_dir; print(cache_dir())')/book-forge.log" | tail -5
+
+      - name: Zip (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item windows/Install.cmd "dist/Book Forge/"
+          Copy-Item windows/INSTALL.txt "dist/Book Forge/"
+          Compress-Archive -Force -Path "dist/Book Forge" -DestinationPath "dist/Book-Forge-Windows.zip"
+
+      - name: Archive (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cp linux/install.sh linux/INSTALL.txt "dist/Book Forge/"
+          chmod +x "dist/Book Forge/install.sh" "dist/Book Forge/book-forge"
+          tar -C dist -czf dist/Book-Forge-Linux.tar.gz "Book Forge"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Book-Forge-${{ matrix.platform }}
+          path: windows-linux/dist/Book-Forge-${{ matrix.platform }}.*
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots-${{ matrix.platform }}
+          path: screenshots-${{ matrix.platform }}
+          retention-days: 7
