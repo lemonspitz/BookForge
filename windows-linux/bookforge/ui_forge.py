@@ -181,8 +181,8 @@ class ForgeView(QWidget):
         n.setWordWrap(True)
         wf.addRow(n)
         sf.addRow(self.wifi)
-        self.usb_note = QLabel('Works with Kindle, Kobo, PocketBook and other e-readers through Calibre. '
-                               'Kindle books get their cover in the Kindle library.')
+        self.usb_note = QLabel('Works with Kindle, Kobo, PocketBook and other e-readers over USB. With Calibre installed, '
+                               'EPUBs become Kindle books with covers in the Kindle library.')
         self.usb_note.setWordWrap(True)
         sf.addRow(self.usb_note)
         self.after_c = QCheckBox('Send when done')
