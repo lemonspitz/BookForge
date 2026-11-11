@@ -4,6 +4,22 @@ An e-book library app for **Mac, Windows and Linux**. It reads EPUBs and PDFs, t
 
 Languages: Indonesian, English, Japanese, Korean, Chinese (Simplified), Chinese (Traditional), Thai and Vietnamese.
 
+## Screenshots
+
+**Library:** your EPUBs and PDFs with their covers. A green tick marks books that are on the connected e-reader.
+
+<img src="docs/library.png" alt="Book Forge library" width="720">
+
+**E-reader:** plug in a Kindle, Kobo or other reader to see what's on it, sync with ticks, or import and send new books in one click.
+
+<img src="docs/e-reader.png" alt="A connected Kindle in Book Forge" width="720">
+
+**Convert & Translate:** turn a PDF into an EPUB, translate it into another language, and send it to your reader.
+
+<img src="docs/convert-translate.png" alt="Convert and translate a book" width="720">
+
+*Shown with a demo library of public-domain classics; the Mac app is pictured.*
+
 ## What it does
 
 - **Library.** Keeps your EPUBs and PDFs in one place (`Documents/Book Forge Library`) with their covers, reading progress, search and sorting. Drag in files or whole folders; books you make or translate are added automatically.
