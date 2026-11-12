@@ -42,7 +42,7 @@ Languages: Indonesian, English, Japanese, Korean, Chinese (Simplified), Chinese 
 ## Requirements
 
 - **Mac:** macOS 26 on Apple silicon.
-- **Windows:** Windows 10 or 11, 64-bit.
+- **Windows:** Windows 10 or 11, 64-bit. On Windows 11 the window gets the Mac app's see-through, blurred sidebar and rounded corners (set `BOOKFORGE_BACKDROP` to `mica` or `none` to change the backdrop).
 - **Linux:** a 64-bit desktop distribution (built on Ubuntu 22.04). For MTP readers such as newer Kindles, the system's libmtp (package `libmtp9` or `libmtp`), which desktop distributions already have.
 
 Optional:

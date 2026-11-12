@@ -27,6 +27,8 @@ pages[0].save(pdf, save_all=True, append_images=pages[1:], resolution=72)
 from bookforge.qt import QApplication, QTimer, Qt, QWebEngineView  # noqa: F401
 QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
 app = QApplication(['bookforge-smoke'])
+from bookforge import theme
+theme.apply(app)
 from bookforge import devices, languages, library, pdfread, styleguides
 from bookforge.ui_main import MainWindow
 L = library.shared()

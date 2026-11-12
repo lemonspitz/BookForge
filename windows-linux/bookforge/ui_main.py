@@ -1,10 +1,11 @@
 """The main window: sidebar (Library, the e-reader, Convert & Translate) and the three screens."""
 import os
 
-from .qt import (QApplication, QHBoxLayout, QIcon, QLabel, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-                     QSize, QSplitter, QStackedWidget, Qt, QVBoxLayout, QWidget)
+from .qt import (QApplication, QColor, QFont, QHBoxLayout, QIcon, QLabel, QListWidget, QListWidgetItem, QMainWindow,
+                 QMessageBox, QRectF, QSize, QSplitter, QStackedWidget, QStyle, QStyledItemDelegate,
+                 Qt, QVBoxLayout, QWidget)
 
-from . import VERSION
+from . import VERSION, theme
 from . import devices as dev
 from . import library as lib
 from .deviceart import DeviceArt
@@ -12,13 +13,17 @@ from .ui_device import DeviceView
 from .ui_forge import ForgeView
 from .ui_library import LibraryView
 
+COUNT = Qt.ItemDataRole.UserRole + 1
+
 
 class DeviceRow(QWidget):
     def __init__(self):
         super().__init__()
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         h = QHBoxLayout(self)
-        h.setContentsMargins(6, 4, 6, 4)
-        self.art = DeviceArt('generic', (18, 24))
+        h.setContentsMargins(20, 4, 18, 4)
+        h.setSpacing(10)
+        self.art = DeviceArt('generic', (18, 26))
         h.addWidget(self.art)
         v = QVBoxLayout()
         v.setSpacing(0)
@@ -27,12 +32,17 @@ class DeviceRow(QWidget):
         f = self.sub.font()
         f.setPointSizeF(f.pointSizeF() * 0.85)
         self.sub.setFont(f)
-        self.sub.setStyleSheet('color: gray;')
         v.addWidget(self.title)
         v.addWidget(self.sub)
         h.addLayout(v, 1)
         self.spin = QLabel('⏳')
         h.addWidget(self.spin)
+        self.highlight(False)
+
+    def highlight(self, on):
+        """White text on the accent colour when the row is selected and the sidebar has focus."""
+        self.title.setStyleSheet('color: %s; background: transparent;' % (theme.C['on_accent'] if on else theme.C['text']))
+        self.sub.setStyleSheet('color: %s; background: transparent;' % ('rgba(255,255,255,200)' if on else theme.C['secondary']))
 
     def refresh(self):
         D = dev.shared()
@@ -46,10 +56,57 @@ class DeviceRow(QWidget):
         self.spin.setVisible(D.scanning or D.working is not None)
 
 
+class SidebarDelegate(QStyledItemDelegate):
+    """The usual row, plus the book count on the right, as in the Mac sidebar."""
+    def paint(self, p, option, index):
+        super().paint(p, option, index)
+        n = index.data(COUNT)
+        if n is None:
+            return
+        view = self.parent()
+        lit = bool(option.state & QStyle.StateFlag.State_Selected) and view.property('focused')
+        p.save()
+        p.setPen(QColor(theme.C['on_accent'] if lit else theme.C['secondary']))
+        f = QFont(option.font)
+        f.setPointSizeF(f.pointSizeF() * 0.9)
+        p.setFont(f)
+        p.drawText(QRectF(option.rect).adjusted(0, 0, -26, 0), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, str(n))
+        p.restore()
+
+
+class Sidebar(QListWidget):
+    """Shows its selection in the accent colour only while it has the focus, like the Mac's source lists."""
+    def __init__(self):
+        super().__init__()
+        self.setObjectName('sidebar')
+        self.setProperty('focused', False)
+        self.setItemDelegate(SidebarDelegate(self))
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.on_focus = None
+
+    def _focus(self, on):
+        self.setProperty('focused', on)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.viewport().update()
+        if self.on_focus:
+            self.on_focus()
+
+    def focusInEvent(self, e):
+        super().focusInEvent(e)
+        self._focus(True)
+
+    def focusOutEvent(self, e):
+        super().focusOutEvent(e)
+        self._focus(False)
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('Book Forge')
+        theme.frost(self)
         icon = os.path.join(os.path.dirname(__file__), 'icon.png')
         if os.path.exists(icon):
             self.setWindowIcon(QIcon(icon))
@@ -57,31 +114,36 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(860, 560)
         self.L, self.D = lib.shared(), dev.shared()
 
-        self.side = QListWidget()
-        self.side.setMinimumWidth(200)
-        self.side.setMaximumWidth(300)
-        self.side.setIconSize(QSize(18, 18))
+        self.side = Sidebar()
+        self.side.setIconSize(QSize(20, 20))
 
         def section(text):
             it = QListWidgetItem(text)
             it.setFlags(Qt.ItemFlag.NoItemFlags)
+            it.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+            it.setSizeHint(QSize(200, 34))
             f = it.font()
-            f.setBold(True)
+            f.setWeight(QFont.Weight.DemiBold)
             f.setPointSizeF(f.pointSizeF() * 0.85)
             it.setFont(f)
             self.side.addItem(it)
+
+        def entry(text):
+            it = QListWidgetItem('  ' + text)
+            it.setSizeHint(QSize(200, 36))
+            self.side.addItem(it)
+            return it
         section('Library')
-        self.all_item = QListWidgetItem('📚  All Books')
-        self.side.addItem(self.all_item)
+        self.all_item = entry('All Books')
         section('Devices')
         self.dev_item = QListWidgetItem()
         self.dev_row = DeviceRow()
-        self.dev_item.setSizeHint(QSize(200, 44))
+        self.dev_item.setSizeHint(QSize(200, 48))
         self.side.addItem(self.dev_item)
         self.side.setItemWidget(self.dev_item, self.dev_row)
         section('Tools')
-        self.forge_item = QListWidgetItem('✨  Convert & Translate')
-        self.side.addItem(self.forge_item)
+        self.forge_item = entry('Convert & Translate')
+        self.side.on_focus = self.highlight_device
 
         self.stack = QStackedWidget()
         self.library = LibraryView(self)
@@ -92,12 +154,29 @@ class MainWindow(QMainWindow):
         self.side.currentItemChanged.connect(self.select)
         self.side.setCurrentItem(self.all_item)
 
+        # the sidebar sits on the window's backdrop (blurred on Windows 11); the screens on a solid page
+        side_pane = QWidget()
+        side_pane.setObjectName('sidebarPane')
+        side_pane.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
+        sv = QVBoxLayout(side_pane)
+        sv.setContentsMargins(0, 8, 0, 8)
+        sv.addWidget(self.side)
+        side_pane.setMinimumWidth(210)
+        side_pane.setMaximumWidth(320)
+        content = QWidget()
+        content.setObjectName('contentPane')
+        content.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
+        cv = QVBoxLayout(content)
+        cv.setContentsMargins(0, 0, 0, 0)
+        cv.addWidget(self.stack)
+
         split = QSplitter()
-        split.addWidget(self.side)
-        split.addWidget(self.stack)
+        split.addWidget(side_pane)
+        split.addWidget(content)
         split.setStretchFactor(1, 1)
-        split.setSizes([220, 860])
+        split.setSizes([230, 850])
         split.setChildrenCollapsible(False)
+        split.setHandleWidth(1)
         self.setCentralWidget(split)
 
         file_menu = self.menuBar().addMenu('&File')
@@ -112,7 +191,20 @@ class MainWindow(QMainWindow):
         self.L.changed.connect(self.refresh)
         self.D.changed.connect(self.refresh)
         self.D.ask_quit_calibre.connect(self.ask_quit_calibre)
+        self.theme_changed()
         self.refresh()
+
+    def theme_changed(self):
+        """Light or dark changed (or first set up): redraw the drawn icons in the new colours."""
+        a = theme.C['accent']
+        white = theme.C['on_accent']
+        self.all_item.setIcon(theme.icon('books', a, white))
+        self.forge_item.setIcon(theme.icon('sparkles', a, white))
+        theme.retint(self)
+        self.highlight_device()
+
+    def highlight_device(self):
+        self.dev_row.highlight(self.side.currentItem() is self.dev_item and bool(self.side.property('focused')))
 
     def select(self, item, _=None):
         if item is self.all_item:
@@ -121,6 +213,7 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentWidget(self.device)
         elif item is self.forge_item:
             self.stack.setCurrentWidget(self.forge)
+        self.highlight_device()
 
     def show_device(self):
         self.side.setCurrentItem(self.dev_item)
@@ -130,7 +223,7 @@ class MainWindow(QMainWindow):
         self.side.setCurrentItem(self.forge_item)
 
     def refresh(self):
-        self.all_item.setText('📚  All Books  (%d)' % len(self.L.books))
+        self.all_item.setData(COUNT, len(self.L.books))
         self.dev_row.refresh()
 
     def ask_quit_calibre(self):

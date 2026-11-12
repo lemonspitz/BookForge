@@ -6,7 +6,7 @@ from .qt import (QButtonGroup, QCheckBox, QComboBox, QFileDialog, QFormLayout, Q
                      QLabel, QLineEdit, QMessageBox, QPixmap, QProgressBar, QPushButton, QRadioButton, QScrollArea,
                      QSpinBox, QTextEdit, Qt, QToolButton, QVBoxLayout, QWidget)
 
-from . import devices as dev, languages
+from . import devices as dev, languages, theme
 from . import library as lib
 from .util import Failure, Poster, in_background, load_api_key, load_secret, reveal, save_api_key, save_secret, settings
 
@@ -63,27 +63,23 @@ class ForgeView(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        outer.addWidget(theme.Header('Convert & Translate'))
         outer.addWidget(scroll)
         body = QWidget()
         scroll.setWidget(body)
         v = QVBoxLayout(body)
-        v.setContentsMargins(20, 20, 20, 20)
+        v.setContentsMargins(28, 24, 28, 24)
         v.setSpacing(14)
-
-        heading = QLabel('Convert & Translate')
-        f = heading.font()
-        f.setPointSizeF(f.pointSizeF() * 1.5)
-        f.setBold(True)
-        heading.setFont(f)
-        v.addWidget(heading)
 
         # drop zone
         self.drop = QFrame()
         self.drop.setObjectName('drop')
-        self.drop.setStyleSheet('#drop { border: 2px dashed palette(mid); border-radius: 12px; }')
+        self.drop.setStyleSheet('#drop { border: 2px dashed %s; border-radius: 16px; }' % theme.C['tertiary'])
         self.setAcceptDrops(True)
         dh = QHBoxLayout(self.drop)
-        dh.setContentsMargins(14, 14, 14, 14)
+        dh.setContentsMargins(20, 20, 20, 20)
+        dh.setSpacing(20)
         self.cover_l = QLabel('📄', alignment=Qt.AlignmentFlag.AlignCenter)
         self.cover_l.setFixedSize(80, 110)
         dh.addWidget(self.cover_l)
@@ -93,10 +89,14 @@ class ForgeView(QWidget):
         f.setBold(True)
         self.file_l.setFont(f)
         dv.addWidget(self.file_l)
-        dv.addWidget(QLabel('Scanned PDFs are read with Tesseract text recognition.'))
+        dv.addStretch(1)
+        hint = QLabel('Scanned PDFs are read with Tesseract text recognition.')
+        hint.setProperty('secondary', True)
+        dv.addWidget(hint)
         self.choose_b = QPushButton('Choose File…')
         self.choose_b.clicked.connect(self.choose)
         dv.addWidget(self.choose_b, 0, Qt.AlignmentFlag.AlignLeft)
+        dv.addStretch(1)
         dh.addLayout(dv, 1)
         v.addWidget(self.drop)
 
@@ -133,6 +133,7 @@ class ForgeView(QWidget):
         self.tr_note = QLabel("Claude first studies the book's narration, each character's way of speaking and its names, then "
                               'translates with that style sheet. It uses your Anthropic API account (about $2–5 for a novel).')
         self.tr_note.setWordWrap(True)
+        self.tr_note.setProperty('secondary', True)
         tf.addRow(self.tr_note)
         dl.addWidget(tr_g)
 
@@ -145,9 +146,17 @@ class ForgeView(QWidget):
         grp.addButton(self.wifi_r)
         (self.wifi_r if settings.get('sendMethod') == 'wifi' else self.usb_r).setChecked(True)
         self.usb_r.toggled.connect(self.method_changed)
+        seg = QFrame()
+        seg.setObjectName('segments')
+        sh = QHBoxLayout(seg)
+        sh.setContentsMargins(2, 2, 2, 2)
+        sh.setSpacing(0)
+        for r in (self.usb_r, self.wifi_r):
+            r.setProperty('segment', True)
+            r.setCursor(Qt.CursorShape.PointingHandCursor)
+            sh.addWidget(r)
         rr = QHBoxLayout()
-        rr.addWidget(self.usb_r)
-        rr.addWidget(self.wifi_r)
+        rr.addWidget(seg)
         rr.addStretch(1)
         sf.addRow('Send by', rr)
         self.wifi = QWidget()
@@ -179,11 +188,13 @@ class ForgeView(QWidget):
         wf.addRow('Password', self.pass_e)
         n = QLabel("The sender must be on Amazon's Approved Personal Document Email List.")
         n.setWordWrap(True)
+        n.setProperty('secondary', True)
         wf.addRow(n)
         sf.addRow(self.wifi)
         self.usb_note = QLabel('Works with Kindle, Kobo, PocketBook and other e-readers over USB. With Calibre installed, '
                                'EPUBs become Kindle books with covers in the Kindle library.')
         self.usb_note.setWordWrap(True)
+        self.usb_note.setProperty('secondary', True)
         sf.addRow(self.usb_note)
         self.after_c = QCheckBox('Send when done')
         self.after_c.setChecked(True)
@@ -219,13 +230,13 @@ class ForgeView(QWidget):
         v.addWidget(self.bar)
         v.addWidget(self.status_l)
         self.style_b = QToolButton(text='▸ Style Claude learned from this book', checkable=True)
-        self.style_b.setStyleSheet('border: none;')
+        self.style_b.setProperty('link', True)
         self.style_t = QTextEdit(readOnly=True)
         self.style_t.setMaximumHeight(160)
         self.style_b.toggled.connect(lambda on: (self.style_t.setVisible(on), self.style_b.setText(
             ('▾' if on else '▸') + ' Style Claude learned from this book')))
         self.ch_b = QToolButton(checkable=True)
-        self.ch_b.setStyleSheet('border: none;')
+        self.ch_b.setProperty('link', True)
         self.ch_t = QTextEdit(readOnly=True)
         self.ch_t.setMaximumHeight(120)
         self.ch_b.toggled.connect(lambda on: (self.ch_t.setVisible(on), self.update_ui()))
@@ -294,7 +305,7 @@ class ForgeView(QWidget):
     def set_status(self, text, kind='info', progress=None):
         icon = {'info': 'ℹ️', 'work': '⏳', 'done': '✅', 'failed': '⚠️'}[kind]
         self.status_l.setText('%s  %s' % (icon, text))
-        self.status_l.setStyleSheet('color: #d93025;' if kind == 'failed' else '')
+        self.status_l.setStyleSheet('color: #ff3b30;' if kind == 'failed' else '')
         if progress is None:
             self.bar.setRange(0, 0)
         else:

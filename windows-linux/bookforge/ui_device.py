@@ -1,8 +1,8 @@
 """The e-reader screen: what's on it, one-click Import and Send, and tick-to-sync."""
-from .qt import (QBrush, QColor, QFont, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QProgressBar, QPushButton,
-                     QStackedWidget, Qt, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+from .qt import (QBrush, QColor, QHBoxLayout, QHeaderView, QLabel, QProgressBar, QPushButton, QSize,
+                     QStackedWidget, QStyledItemDelegate, Qt, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from . import devices as dev
+from . import devices as dev, theme
 from . import library as lib
 from .deviceart import DeviceArt
 from .util import calibre_app_running, human_readable
@@ -31,6 +31,13 @@ def big(label, scale=1.6, bold=True):
     return label
 
 
+class RoomyRows(QStyledItemDelegate):
+    """Taller rows, as in the Mac's lists (padding in the style sheet would push the row buttons off centre)."""
+    def sizeHint(self, option, index):
+        s = super().sizeHint(option, index)
+        return QSize(s.width(), max(s.height() + 16, 38))
+
+
 class DeviceView(QWidget):
     def __init__(self, main):
         super().__init__()
@@ -44,6 +51,13 @@ class DeviceView(QWidget):
         self.stack = QStackedWidget()
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        self.head = theme.Header('E-reader')
+        self.filter = theme.search_field('Filter books')
+        self.filter.setFixedWidth(300)
+        self.filter.textChanged.connect(self.rebuild)
+        self.head.add(self.filter)
+        outer.addWidget(self.head)
         outer.addWidget(self.stack)
 
         # connected
@@ -53,8 +67,8 @@ class DeviceView(QWidget):
         v.setSpacing(0)
         header = QWidget()
         hh = QHBoxLayout(header)
-        hh.setContentsMargins(20, 20, 20, 16)
-        hh.setSpacing(24)
+        hh.setContentsMargins(28, 24, 24, 20)
+        hh.setSpacing(32)
         self.art = DeviceArt('generic', (130, 170))
         hh.addWidget(self.art, 0, Qt.AlignmentFlag.AlignTop)
         info = QVBoxLayout()
@@ -65,24 +79,31 @@ class DeviceView(QWidget):
         self.gauge.setTextVisible(False)
         self.gauge.setMaximumWidth(280)
         self.gauge.setFixedHeight(10)
+        self.gauge.setProperty('gauge', True)
         self.free_l = QLabel()
         self.compare_l = QLabel()
+        for w in (self.family_l, self.free_l, self.compare_l):
+            w.setProperty('secondary', True)
         for w in (self.name_l, self.family_l, self.gauge, self.free_l, self.compare_l):
             info.addWidget(w)
         row = QHBoxLayout()
         self.import_b = QPushButton()
+        self.import_b.setProperty('iconName', 'import')
         self.import_b.clicked.connect(lambda: self.act(self.D.import_new))
         self.send_b = QPushButton()
+        self.send_b.setProperty('iconName', 'send')
         self.send_b.clicked.connect(lambda: self.act(self.D.send_new))
         for b in (self.import_b, self.send_b):
-            b.setMinimumHeight(34)
+            b.setMinimumHeight(36)
             row.addWidget(b)
         row.addStretch(1)
         info.addLayout(row)
         row2 = QHBoxLayout()
         self.refresh_b = QPushButton('Refresh')
+        self.refresh_b.setProperty('iconName', 'refresh')
         self.refresh_b.clicked.connect(lambda: self.D.scan())
         self.eject_b = QPushButton('Eject')
+        self.eject_b.setProperty('iconName', 'eject')
         self.eject_b.clicked.connect(lambda: self.D.perform(self.D.eject))
         row2.addWidget(self.refresh_b)
         row2.addWidget(self.eject_b)
@@ -91,31 +112,30 @@ class DeviceView(QWidget):
         hh.addLayout(info, 1)
         v.addWidget(header)
 
-        self.filter = QLineEdit(placeholderText='Filter books')
-        self.filter.setClearButtonEnabled(True)
-        self.filter.textChanged.connect(self.rebuild)
-        fw = QWidget()
-        fl = QHBoxLayout(fw)
-        fl.setContentsMargins(16, 0, 16, 6)
-        fl.addWidget(self.filter)
-        v.addWidget(fw)
-
         self.tree = QTreeWidget()
+        self.tree.setObjectName('books')
+        self.tree.setItemDelegate(RoomyRows(self.tree))
+        self.tree.setIndentation(0)
         self.tree.setColumnCount(4)
         self.tree.setHeaderHidden(True)
         self.tree.setRootIsDecorated(False)
-        self.tree.setIndentation(8)
         self.tree.header().setStretchLastSection(False)
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for c in (1, 2, 3):
             self.tree.header().setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
         self.tree.itemChanged.connect(self.ticked)
-        v.addWidget(self.tree, 1)
+        self.tree.header().setMinimumSectionSize(72)
+        tw = QWidget()
+        tl = QVBoxLayout(tw)
+        tl.setContentsMargins(18, 0, 18, 0)
+        tl.addWidget(self.tree)
+        v.addWidget(tw, 1)
 
         footer = QWidget()
         fh = QHBoxLayout(footer)
-        fh.setContentsMargins(16, 8, 16, 10)
+        fh.setContentsMargins(24, 10, 20, 12)
         self.footer_l = QLabel(wordWrap=True)
+        self.footer_l.setProperty('secondary', True)
         self.revert_b = QPushButton('Revert')
         self.revert_b.clicked.connect(self.reset)
         self.sync_b = QPushButton('Sync')
@@ -135,6 +155,7 @@ class DeviceView(QWidget):
         ev.addWidget(self.empty_art, 0, Qt.AlignmentFlag.AlignCenter)
         self.empty_title = big(QLabel(alignment=Qt.AlignmentFlag.AlignCenter), 1.3)
         self.empty_text = QLabel(alignment=Qt.AlignmentFlag.AlignCenter, wordWrap=True)
+        self.empty_text.setProperty('secondary', True)
         self.empty_text.setFixedWidth(480)      # a fixed width lets the wrapped text get its full height
         ev.addWidget(self.empty_title)
         # centred by stretches, not an alignment flag: with a flag the layout ignores the wrapped text's height
@@ -194,11 +215,15 @@ class DeviceView(QWidget):
                 self.reader_key = key
                 self.reset()
             self.stack.setCurrentIndex(0)
+            self.head.title.setText(dev.short_name(r))
+            self.filter.show()
             self.fill_header(r)
             self.rebuild()
         else:
             self.reader_key = None
             self.stack.setCurrentIndex(1)
+            self.head.title.setText('E-reader')
+            self.filter.hide()
             self.fill_empty()
 
     def fill_header(self, r):
@@ -216,10 +241,10 @@ class DeviceView(QWidget):
         self.compare_l.setText('%d in both · %d only in your library · %d only on the %s'
                                % (both, len(self.L.books) - both, len(self.D.only_on_reader()), s))
         n, m = len(self.D.to_import()), len(self.D.to_send())
-        self.import_b.setText('⬇  ' + ('Nothing New to Import' if n == 0 else 'Import %d New Book%s' % (n, '' if n == 1 else 's')))
+        self.import_b.setText(('Nothing New to Import' if n == 0 else 'Import %d New Book%s' % (n, '' if n == 1 else 's')))
         self.import_b.setToolTip('Copy the books that are only on the %s into your library. Books already in it, '
                                  'extra copies and store books are skipped.' % s)
-        self.send_b.setText('⬆  ' + ('Nothing New to Send' if m == 0 else 'Send %d New Book%s' % (m, '' if m == 1 else 's')))
+        self.send_b.setText(('Nothing New to Send' if m == 0 else 'Send %d New Book%s' % (m, '' if m == 1 else 's')))
         self.send_b.setToolTip("Copy the library books that aren't on the %s yet. Nothing is removed and nothing is copied twice." % s)
         idle = self.D.working is None and not self.D.scanning
         self.import_b.setEnabled(idle and n > 0)
@@ -259,14 +284,14 @@ class DeviceView(QWidget):
             it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
             it.setCheckState(0, Qt.CheckState.Checked if want else Qt.CheckState.Unchecked)
             if on and want:
-                self.tag(it, 1, 'On %s' % s, '#34a853')
+                self.tag(it, 1, 'On %s' % s, '#34c759')
             elif want:
                 self.tag(it, 1, 'Will be added (as Kindle book)' if dev.is_kindle(r) and lib.Library.format(b) == 'epub'
-                         else 'Will be added', '#1a73e8')
+                         else 'Will be added', theme.C['accent'])
             elif on:
-                self.tag(it, 1, 'Will be removed', '#d93025')
+                self.tag(it, 1, 'Will be removed', '#ff3b30')
             else:
-                self.tag(it, 1, 'Not on %s' % s, '#888888')
+                self.tag(it, 1, 'Not on %s' % s, theme.C['secondary'])
         mine.setExpanded(True)
 
         orphans = [d for d in self.D.only_on_reader() if not q or q in dev.display_title(d).casefold()]
@@ -287,13 +312,13 @@ class DeviceView(QWidget):
                 it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
                 it.setCheckState(0, Qt.CheckState.Checked if d['path'] in self.keep else Qt.CheckState.Unchecked)
                 if d['path'] not in self.keep:
-                    self.tag(it, 1, 'Will be removed', '#d93025')
+                    self.tag(it, 1, 'Will be removed', '#ff3b30')
                 elif self.D.likely_locked(d):
-                    self.tag(it, 1, 'Store book', '#888888')
+                    self.tag(it, 1, 'Store book', theme.C['secondary'])
                     it.setToolTip(1, 'Bought from the Kindle Store and locked with DRM, so Import All leaves it on the reader'
                                   if dev.importable(d) else "Bought from the Kindle Store in Amazon's KFX format, which only a Kindle can open")
                 else:
-                    self.tag(it, 1, 'Not in library', '#e8710a')
+                    self.tag(it, 1, 'Not in library', '#ff9500')
                 it.setText(2, human_readable(d.get('size') or 0))
                 if dev.importable(d):
                     b = QPushButton('Import')

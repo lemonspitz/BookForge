@@ -82,8 +82,8 @@ def main():
     from bookforge.qt import QApplication, QIcon, Qt, QWebEngineView  # noqa: web engine before the application starts
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
     app = QApplication([sys.argv[0]])
-    if sys.platform == 'darwin':
-        app.setStyle('Fusion')      # the Mac style doesn't draw ticks in lists
+    from bookforge import theme
+    theme.apply(app)                # the Mac app's look: rounded controls, accent blue, a see-through sidebar
     app.setApplicationName('Book Forge')
     app.setOrganizationName('Book Forge')
     app.setDesktopFileName('book-forge')

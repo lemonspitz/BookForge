@@ -450,4 +450,6 @@ def open_book(book, parent=None):
     else:
         w = EPUBReader(book, Package(L.url(book), book['id']))
     _open[book['id']] = w
+    from . import theme
+    theme.frost(w, see_through=False)       # rounded corners and a matching title bar; the page stays solid
     w.show()

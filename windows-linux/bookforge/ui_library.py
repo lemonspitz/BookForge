@@ -6,7 +6,7 @@ from .qt import (QAbstractItemView, QAction, QActionGroup, QBrush, QColor, QDial
                      QListWidgetItem, QMenu, QMessageBox, QPainter, QPainterPath, QPen, QPushButton, QRectF, QSize,
                      QStyle, QStyledItemDelegate, Qt, QPointF, QToolButton, QVBoxLayout, QWidget, QLinearGradient, QPalette)
 
-from . import devices as dev, languages
+from . import devices as dev, languages, theme
 from . import library as lib
 from .util import reveal, settings
 
@@ -154,7 +154,8 @@ class Grid(QListWidget):
         self.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.setMovement(QListWidget.Movement.Static)
         self.setUniformItemSizes(True)
-        self.setSpacing(10)
+        self.setSpacing(14)
+        self.setViewportMargins(16, 4, 8, 0)
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.setItemDelegate(CoverDelegate(self))
         self.setGridSize(QSize(CoverDelegate.W + 12, CoverDelegate.H + 8))
@@ -224,36 +225,21 @@ class LibraryView(QWidget):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
 
-        top = QWidget()
-        h = QHBoxLayout(top)
-        h.setContentsMargins(16, 10, 16, 10)
-        heading = QLabel('Library')
-        f = heading.font()
-        f.setPointSizeF(f.pointSizeF() * 1.5)
-        f.setBold(True)
-        heading.setFont(f)
-        h.addWidget(heading)
-        h.addStretch(1)
-        self.import_b = QPushButton('Import from Kindle')
-        self.import_b.clicked.connect(lambda: self.D.perform(self.D.import_new))
-        self.send_b = QPushButton('Send to Kindle')
-        self.send_b.clicked.connect(lambda: self.D.perform(self.D.send_new))
-        h.addWidget(self.import_b)
-        h.addWidget(self.send_b)
-        self.sort_b = QToolButton(text='Sort ▾')
+        top = theme.Header('Library', divider=False)
+        self.sort_b = theme.tool('sort', 'Sort and filter')
         self.sort_b.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.sort_menu = QMenu(self)
         self.sort_menu.aboutToShow.connect(self.fill_sort_menu)
         self.sort_b.setMenu(self.sort_menu)
-        h.addWidget(self.sort_b)
-        add = QPushButton('Add Books…')
-        add.clicked.connect(self.choose)
-        h.addWidget(add)
-        self.search = QLineEdit(placeholderText='Title or author')
-        self.search.setClearButtonEnabled(True)
-        self.search.setMaximumWidth(240)
+        top.add(theme.capsule(self.sort_b))
+        self.import_b = theme.tool('import', 'Import from the e-reader', lambda: self.D.perform(self.D.import_new))
+        self.send_b = theme.tool('send', 'Send to the e-reader', lambda: self.D.perform(self.D.send_new))
+        add = theme.tool('plus', 'Add books…', self.choose)
+        top.add(theme.capsule(self.import_b, self.send_b, add))
+        self.search = theme.search_field('Title or author')
+        self.search.setFixedWidth(260)
         self.search.textChanged.connect(self.refresh)
-        h.addWidget(self.search)
+        top.add(self.search)
         v.addWidget(top)
 
         self.grid = Grid(self)
@@ -278,7 +264,8 @@ class LibraryView(QWidget):
         ev.addStretch(1)
 
         self.status_l = QLabel(wordWrap=True)
-        self.status_l.setContentsMargins(16, 8, 16, 8)
+        self.status_l.setContentsMargins(24, 8, 24, 10)
+        self.status_l.setProperty('secondary', True)
         v.addWidget(self.status_l)
 
         self.L.changed.connect(self.refresh)
@@ -366,7 +353,7 @@ class LibraryView(QWidget):
             b.setVisible(connected)
             b.setEnabled(connected and self.D.working is None)
             if connected:
-                b.setText(label % dev.short_name(r))
+                b.setAccessibleName(label % dev.short_name(r))
         if connected:
             n, m = len(self.D.to_import()), len(self.D.to_send())
             s = dev.short_name(r)
