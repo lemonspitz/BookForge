@@ -356,7 +356,7 @@ struct ForgeView: View {
                         Text("The sender must be on Amazon's Approved Personal Document Email List.")
                             .font(.caption).foregroundStyle(.secondary)
                     } else {
-                        Text("Works with Kindle, Kobo, PocketBook and other e-readers over USB. With Calibre installed, EPUBs become Kindle books with covers in the Kindle library.")
+                        Text("Works with Kindle, Kobo, PocketBook and other e-readers over USB. On a Kindle, EPUBs become Kindle books with covers in the Kindle library.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Toggle("Send when done", isOn: $job.sendAfter)

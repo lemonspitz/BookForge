@@ -2,7 +2,7 @@ import AppKit
 
 /// E-readers over USB without Calibre: readers that mount as a drive (older Kindles, Kobo, PocketBook) and MTP
 /// readers such as newer Kindles (through the bundled libmtp). `ReaderLink` keeps the connection and answers
-/// Devices' requests; Calibre, when installed, is only used to convert books.
+/// Devices' requests. Books are converted to and from Kindle formats by KindleFormat.swift.
 
 // MARK: - Storage
 

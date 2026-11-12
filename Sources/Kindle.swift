@@ -1,7 +1,7 @@
 import Foundation
 import AppKit
 
-/// Kindle email delivery, and the Calibre install used (when present) to convert books to and from Kindle formats.
+/// Kindle email delivery, and closing the Calibre app when it holds the e-reader connection.
 enum Kindle {
     static let calibreBin = "/Applications/calibre.app/Contents/MacOS"
     static let calibreBundleID = "net.kovidgoyal.calibre"
@@ -34,12 +34,6 @@ enum Kindle {
             let msg = err[NSAppleScript.errorMessage] as? String ?? "unknown error"
             throw Shell.Failure(message: "Mail couldn't send it: \(msg). Make sure Mail has an account set up and Book Forge may control Mail (System Settings › Privacy & Security › Automation).")
         }
-    }
-
-    /// Calibre is only needed to convert books to and from Kindle formats. BOOKFORGE_NO_CALIBRE hides it (testing).
-    static var calibreInstalled: Bool {
-        ProcessInfo.processInfo.environment["BOOKFORGE_NO_CALIBRE"] == nil
-            && FileManager.default.isExecutableFile(atPath: "\(calibreBin)/ebook-convert")
     }
 
     static var calibreAppRunning: Bool {

@@ -1,7 +1,6 @@
-# Builds the Windows and Linux apps (windows-linux/) and checks them without a screen or an e-reader.
-# To release: push a version tag (v1.2, ...), or run the workflow by hand with that tag as `release`. It publishes
-# a release with both builds, the notes in .github/release-notes/<tag>.md, and the Mac app from the previous
-# release (rebuild that on a Mac when it changes).
+# Builds the Mac, Windows and Linux apps and checks them without a screen or an e-reader.
+# To release: push a version tag (v1.3, ...), or run the workflow by hand with that tag as `release`. It publishes
+# a release with the three builds and the notes in .github/release-notes/<tag>.md.
 name: Build Windows and Linux
 
 on:
@@ -61,6 +60,7 @@ jobs:
           [ "$RUNNER_OS" = Linux ] && export QT_QPA_PLATFORM=offscreen
           python run.py --device
           python tests/smoke.py ../screenshots-${{ matrix.platform }}
+          python tests/kindle_check.py
 
       - name: Package
         run: pyinstaller --noconfirm --clean bookforge.spec
@@ -100,8 +100,34 @@ jobs:
           path: screenshots-${{ matrix.platform }}
           retention-days: 7
 
+  mac:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build
+        run: ./build.sh
+
+      - name: Check Kindle conversion (and against the Windows/Linux converters)
+        run: |
+          pip install lxml pillow
+          python windows-linux/tests/kindle_check.py "build/Book Forge.app/Contents/MacOS/BookForge"
+
+      - name: Zip
+        run: ditto -c -k --keepParent "build/Book Forge.app" build/Book-Forge.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Book-Forge-Mac
+          path: build/Book-Forge.zip
+          retention-days: 7
+
   release:
-    needs: build
+    needs: [build, mac]
     if: startsWith(github.ref, 'refs/tags/v') || inputs.release != ''
     runs-on: ubuntu-22.04
     permissions:
@@ -119,8 +145,8 @@ jobs:
           path: assets
           merge-multiple: true
 
-      - name: The Mac app from the latest release
-        run: gh release download --pattern Book-Forge.zip --dir assets || echo "::warning::no Mac app in the latest release"
+      - name: The Mac app
+        run: ls assets/Book-Forge.zip
 
       - name: Publish
         run: |

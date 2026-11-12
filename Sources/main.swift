@@ -80,6 +80,26 @@ if let i = CommandLine.arguments.firstIndex(of: "--translate"), i + 4 < CommandL
     dispatchMain()
 }
 
+// `BookForge --to-azw3 <in.epub> <out.azw3> [asin]` and `BookForge --to-epub <in.azw3|mobi> <out.epub>` convert
+// to and from Kindle books without the window (also used by the build checks).
+for flag in ["--to-azw3", "--to-epub"] {
+    guard let i = CommandLine.arguments.firstIndex(of: flag), i + 2 < CommandLine.arguments.count else { continue }
+    let args = CommandLine.arguments
+    let src = URL(fileURLWithPath: args[i + 1]), out = URL(fileURLWithPath: args[i + 2])
+    do {
+        if flag == "--to-azw3" {
+            try KindleBook.write(epub: src, to: out, asin: i + 3 < args.count ? args[i + 3] : UUID().uuidString)
+        } else {
+            try KindleRead.toEPUB(src, to: out)
+        }
+        print("written \(out.path)")
+        exit(0)
+    } catch {
+        print("error: \(error.localizedDescription)")
+        exit(1)
+    }
+}
+
 // `BookForge --send <book.epub|pdf>` sends one file to the USB e-reader, for troubleshooting.
 // `BookForge --device` prints what Calibre sees on the connected e-reader.
 if let i = CommandLine.arguments.firstIndex(of: "--send"), i + 1 < CommandLine.arguments.count {
