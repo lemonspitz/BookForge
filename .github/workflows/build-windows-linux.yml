@@ -116,13 +116,21 @@ jobs:
         with:
           python-version: '3.12'
 
+      # GitHub's Macs run an older macOS than the app needs, so a helper built from the app's own
+      # KindleFormat.swift and AppIcon.swift draws the icon and runs the Kindle checks
+      - name: Helper for this macOS
+        run: |
+          mkdir -p build-tool
+          swiftc -O -swift-version 5 -target arm64-apple-macos15.0 Sources/KindleFormat.swift Sources/AppIcon.swift \
+            windows-linux/tests/mac/Shell.swift windows-linux/tests/mac/main.swift -o build-tool/bookforge-tool
+
       - name: Build
-        run: ./build.sh
+        run: BOOKFORGE_ICON_TOOL=build-tool/bookforge-tool ./build.sh
 
       - name: Check Kindle conversion (and against the Windows/Linux converters)
         run: |
           pip install lxml pillow
-          python windows-linux/tests/kindle_check.py "build/Book Forge.app/Contents/MacOS/BookForge"
+          python windows-linux/tests/kindle_check.py build-tool/bookforge-tool
 
       - name: Zip
         run: ditto -c -k --keepParent "build/Book Forge.app" build/Book-Forge.zip

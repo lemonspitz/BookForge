@@ -19,7 +19,8 @@ cp Resources/languages.json "$APP/Contents/Resources/"
 
 ICONSET=build/obj/AppIcon.iconset
 mkdir -p "$ICONSET"
-build/obj/BookForge --icon build/obj
+# BOOKFORGE_ICON_TOOL: a helper that draws the icon where the app itself can't run (GitHub's older macOS)
+"${BOOKFORGE_ICON_TOOL:-build/obj/BookForge}" --icon build/obj
 for s in 16 32 128 256 512; do
   cp "build/obj/icon_$s.png" "$ICONSET/icon_${s}x${s}.png"
   cp "build/obj/icon_$((s * 2)).png" "$ICONSET/icon_${s}x${s}@2x.png"
