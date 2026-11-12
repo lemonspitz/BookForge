@@ -21,6 +21,7 @@ OPF = 'http://www.idpf.org/2007/opf'
 DC = 'http://purl.org/dc/elements/1.1/'
 NCX = 'http://www.daisy.org/z3986/2005/ncx/'
 NULL = 0xffffffff
+CONVERTER_VERSION = 1    # raise when the output changes, so books converted before are made again
 RECORD_SIZE = 4096
 CHUNK_SIZE = 8192
 DIGITS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'

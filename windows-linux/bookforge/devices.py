@@ -118,8 +118,9 @@ def prepare(item, reader, log):
         return None, 'format'
     cache = os.path.join(cache_dir(), 'Converted')
     os.makedirs(cache, exist_ok=True)
-    out = os.path.join(cache, item['uuid'] + '.azw3')
-    newest = max(os.path.getmtime(item['file']), os.path.getmtime(kindlebook.__file__),
+    # the converter's version is in the name (the packaged app has no source files whose dates could say)
+    out = os.path.join(cache, '%s-v%d.azw3' % (item['uuid'], kindlebook.CONVERTER_VERSION))
+    newest = max(os.path.getmtime(item['file']),
                  os.path.getmtime(item['cover']) if item.get('cover') and os.path.exists(item['cover']) else 0)
     if os.path.exists(out) and os.path.getmtime(out) > newest:
         return out, None

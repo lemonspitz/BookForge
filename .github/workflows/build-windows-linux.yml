@@ -72,6 +72,13 @@ jobs:
       - name: Check the package
         run: |
           if [ "$RUNNER_OS" = Windows ]; then "dist/Book Forge/Book Forge.exe" --device; sleep 5; else QT_QPA_PLATFORM=offscreen "dist/Book Forge/book-forge" --device; fi
+          # Kindle conversion inside the packaged app (it has no .py files, unlike running from source)
+          app="dist/Book Forge/book-forge"; [ "$RUNNER_OS" = Windows ] && app="dist/Book Forge/Book Forge.exe"
+          "$app" --to-epub tests/fixtures/sample.azw3 "$RUNNER_TEMP/pkg.epub"
+          for i in $(seq 30); do [ -s "$RUNNER_TEMP/pkg.epub" ] && break; sleep 1; done
+          "$app" --to-azw3 "$RUNNER_TEMP/pkg.epub" "$RUNNER_TEMP/pkg.azw3" PKG-CHECK
+          for i in $(seq 30); do [ -s "$RUNNER_TEMP/pkg.azw3" ] && break; sleep 1; done
+          ls -l "$RUNNER_TEMP/pkg.epub" "$RUNNER_TEMP/pkg.azw3"
           log="$(python -c 'import sys; sys.path.insert(0, "."); from bookforge.util import cache_dir; print(cache_dir())')/book-forge.log"
           if [ -f "$log" ]; then tail -20 "$log"; fi
           if [ -f "$log" ] && grep -q Traceback "$log"; then echo "::error::the packaged app logged an error"; exit 1; fi

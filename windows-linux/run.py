@@ -1,5 +1,6 @@
 """Starts Book Forge:  python run.py  (the packaged app runs this too).
-Command-line modes (no window):  --import-new, --send-new, --device, --convert in.pdf out.epub [language code, e.g. id, en, ja, ko, zh-Hans, zh-Hant, th, vi]"""
+Command-line modes (no window):  --import-new, --send-new, --device, --convert in.pdf out.epub [language code, e.g. id, en, ja, ko, zh-Hans, zh-Hant, th, vi],
+--to-azw3 in.epub out.azw3 [asin], --to-epub in.azw3 out.epub"""
 import os, sys
 
 here = os.path.dirname(os.path.abspath(__file__))
@@ -17,6 +18,18 @@ def log_to_file():
 
 def cli(args):
     """Runs a command-line mode; returns an exit code, or None to start the window."""
+    for flag in ('--to-azw3', '--to-epub'):
+        if flag in args:
+            # Kindle book conversion without the window (also checks the packaged app in CI)
+            i = args.index(flag)
+            src, out = args[i + 1], args[i + 2]
+            from bookforge import kindlebook, kindleread
+            if flag == '--to-azw3':
+                kindlebook.write(src, out, asin=args[i + 3] if len(args) > i + 3 else None)
+            else:
+                kindleread.to_epub(src, out)
+            print('written', out)
+            return 0
     from bookforge.qt import QCoreApplication
     if '--convert' in args:
         i = args.index('--convert')
