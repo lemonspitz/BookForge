@@ -186,7 +186,7 @@ class MainWindow(QMainWindow):
         help_menu = self.menuBar().addMenu('&Help')
         help_menu.addAction('About Book Forge', lambda: QMessageBox.about(
             self, 'About Book Forge', 'Book Forge %s\n\nYour e-book library, PDF to EPUB, translation, and Kindle sync.\n'
-            'Uses Calibre for e-readers and file conversion.' % VERSION))
+            'Works with Kindle, Kobo and other e-readers by itself: no other software needed.' % VERSION))
 
         self.L.changed.connect(self.refresh)
         self.D.changed.connect(self.refresh)

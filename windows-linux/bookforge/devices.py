@@ -1,5 +1,5 @@
 """The USB e-reader, reached directly (readers/): drives, MTP readers, Windows Portable Devices.
-Calibre, when it's installed, is only used to convert books to and from Kindle formats."""
+Books are converted to and from Kindle formats by Book Forge itself (kindlebook, kindleread)."""
 import json, os, re, subprocess, tempfile, threading, time, uuid
 
 from .qt import QObject, QTimer, pyqtSignal, pyqtSlot
@@ -7,8 +7,9 @@ from .qt import QObject, QTimer, pyqtSignal, pyqtSlot
 from . import library as lib
 from .readers import detect, ops
 from .readers.meta import ext as file_ext
-from .util import (Failure, cache_dir, calibre_app_running, calibre_exe, human_readable, no_window, quit_calibre, run,
+from .util import (Failure, cache_dir, calibre_app_running, human_readable, no_window, quit_calibre,
                    settings)
+from . import kindlebook, kindleread
 
 
 # MARK: - Books on the reader (dicts: title, authors, path, lpath, uuid, size)
@@ -40,9 +41,17 @@ def store_book(b):
     return fmt(b) in ('kfx', 'azw4') or bool(STORE_NAME.search(file_name(b)))
 
 
+KINDLE_FORMATS = ('azw', 'azw3', 'mobi', 'prc', 'pdb')
+
+
 def needs_conversion(b):
-    """Reader books that only come into the library as EPUBs through Calibre."""
-    return fmt(b) not in ('epub', 'kepub', 'pdf')
+    """Reader books that come into the library converted to EPUB (Kindle formats)."""
+    return fmt(b) in KINDLE_FORMATS
+
+
+def can_import(b):
+    """Formats Book Forge can bring into the library: EPUB and PDF as they are, Kindle books converted."""
+    return fmt(b) in ('epub', 'kepub', 'pdf') + KINDLE_FORMATS
 
 
 def is_kindle(reader):
@@ -53,24 +62,15 @@ def short_name(reader):
     return 'Kindle' if is_kindle(reader) else reader['name']
 
 
-def can_convert():
-    return calibre_exe('ebook-convert') is not None
-
-
 def accepts(reader, format):
-    """Whether a library book in this format can go on the reader. Kindles get EPUBs converted (with Calibre)
-    or, if they run KOReader, as they are."""
+    """Whether a library book in this format can go on the reader. Kindles get EPUBs as Kindle books (AZW3)."""
     if is_kindle(reader):
-        return format == 'pdf' or (format == 'epub' and (can_convert() or 'epub' in reader['formats']))
-    return format in reader['formats'] or (format == 'epub' and 'azw3' in reader['formats'] and can_convert())
+        return format in ('pdf', 'epub')
+    return format in reader['formats'] or (format == 'epub' and 'azw3' in reader['formats'])
 
 
 FAMILY = {'kindle': 'Amazon Kindle', 'kindle-oasis': 'Amazon Kindle', 'kindle-scribe': 'Amazon Kindle',
           'kobo': 'Kobo', 'pocketbook': 'PocketBook', 'boox': 'Onyx Boox', 'tolino': 'Tolino', 'nook': 'Barnes & Noble Nook'}
-
-NEEDS_CALIBRE = ('Install Calibre (free, calibre-ebook.com) to convert them, or send them with Email to Kindle, '
-                 'which converts them for you.')
-
 
 def one_per_title(items, key, rank):
     """Keeps the best-ranked item of each title, in the original order."""
@@ -84,50 +84,54 @@ def one_per_title(items, key, rank):
     return [it for i, it in enumerate(items) if i in keep]
 
 
-# MARK: - Converting (Calibre, when installed)
+# MARK: - Converting
 
 def readable(path):
-    """A file fetched from a reader, as something the library can hold: EPUBs and PDFs as they are,
-    anything else (AZW3, MOBI, FB2…) converted to EPUB with Calibre. Raises Calibre's error, which names DRM if
-    that's the problem."""
-    if path.lower().rsplit('.', 1)[-1] in ('epub', 'pdf'):
+    """A file fetched from a reader, as something the library can hold: EPUBs and PDFs as they are, Kindle
+    books (AZW3, MOBI, AZW) converted to EPUB. Raises Failure, naming DRM if that's the problem."""
+    e = path.lower().rsplit('.', 1)[-1]
+    if e in ('epub', 'pdf'):
         return path
-    exe = calibre_exe('ebook-convert')
-    if not exe:
-        raise Failure('needs Calibre')
+    if e not in KINDLE_FORMATS:
+        raise Failure("Book Forge can't import .%s books." % e)
     out = os.path.splitext(path)[0] + '.converted.epub'
-    run([exe, path, out])
+    try:
+        kindleread.to_epub(path, out)
+    except kindleread.DRMError:
+        raise Failure('locked with DRM')
+    except kindleread.ConversionError as ex:
+        raise Failure(str(ex))
     return out
 
 
 def prepare(item, reader, log):
-    """The file to send to this reader: as it is, or converted for Kindle. (None, reason) if it can't go."""
+    """The file to send to this reader: as it is, or as a Kindle book (AZW3). (None, reason) if it can't go."""
     ext = item['file'].rsplit('.', 1)[-1].lower()
-    convert = can_convert()
     if is_kindle(reader):
         if ext == 'pdf':
             return item['file'], None
         if ext != 'epub':
             return None, 'format'
-        if not convert:
-            # KOReader opens EPUBs; the Kindle's own library needs them converted
-            return (item['file'], None) if 'epub' in reader['formats'] else (None, 'calibre')
     elif ext in reader['formats']:
         return item['file'], None
     elif not (ext == 'epub' and 'azw3' in reader['formats']):
         return None, 'format'
-    elif not convert:
-        return None, 'calibre'
     cache = os.path.join(cache_dir(), 'Converted')
     os.makedirs(cache, exist_ok=True)
     out = os.path.join(cache, item['uuid'] + '.azw3')
-    if os.path.exists(out) and os.path.getmtime(out) > os.path.getmtime(item['file']):
+    newest = max(os.path.getmtime(item['file']), os.path.getmtime(kindlebook.__file__),
+                 os.path.getmtime(item['cover']) if item.get('cover') and os.path.exists(item['cover']) else 0)
+    if os.path.exists(out) and os.path.getmtime(out) > newest:
         return out, None
     log('Converting “%s” for Kindle…' % item['title'])
-    args = [calibre_exe('ebook-convert'), item['file'], out, '--output-profile', 'kindle_pw3']
+    cover = None
     if item.get('cover') and os.path.exists(item['cover']):
-        args += ['--cover', item['cover']]
-    run(args)
+        with open(item['cover'], 'rb') as f:
+            cover = f.read()
+    try:
+        kindlebook.write(item['file'], out, asin=item['uuid'], cover=cover, title=item['title'], authors=item['authors'])
+    except kindlebook.ConversionError as e:
+        raise Failure('“%s” couldn\'t be made into a Kindle book: %s' % (item['title'], e))
     return out, None
 
 
@@ -155,8 +159,8 @@ def send_now(items, log):
         sent, skipped, need = D._upload(items, log)
     D._rescan_blocking()
     if sent == 0:
-        raise Failure(("%s can't open EPUBs. " % reader['name'] + NEEDS_CALIBRE) if need else "%s can't open this format." % reader['name'])
-    msg = 'On your %s%s' % (reader['name'], ', with its cover. You can unplug it.' if is_kindle(reader) and can_convert() else '. You can unplug it.')
+        raise Failure("%s can't open this format." % reader['name'])
+    msg = 'On your %s%s' % (reader['name'], ', with its cover. You can unplug it.' if is_kindle(reader) else '. You can unplug it.')
     if skipped:
         msg += ' Skipped %s: format not supported.' % ', '.join(skipped)
     return msg
@@ -351,9 +355,7 @@ class Devices(QObject):
         """What one-click Import copies: books only on the reader that aren't locked, one copy per title
         (EPUB, then Kindle formats, then PDF)."""
         rank = {'epub': 0, 'kepub': 0, 'azw3': 1, 'mobi': 2, 'azw': 3, 'pdf': 9}
-        convert = can_convert()
-        return one_per_title([b for b in self.only_on_reader() if not self.likely_locked(b)
-                              and (convert or not needs_conversion(b))],
+        return one_per_title([b for b in self.only_on_reader() if not self.likely_locked(b) and can_import(b)],
                              lambda b: lib.key(display_title(b)), lambda b: rank.get(fmt(b), 5))
 
     def to_send(self):
@@ -427,19 +429,25 @@ class Devices(QObject):
         self._emit()
 
     def _upload(self, items, log):
-        """Converts as needed and copies. Returns (sent, titles it can't open, titles that need Calibre). Hold _io."""
+        """Converts as needed and copies. Returns (sent, titles it can't open, titles that couldn't be converted).
+        Hold _io."""
         reader = self.reader
-        ready, skipped, need = [], [], []
+        ready, skipped, failed = [], [], []
         for it in items:
-            f, why = prepare(it, reader, log)
+            try:
+                f, why = prepare(it, reader, log)
+            except Failure as e:
+                print(e)
+                failed.append('“%s”' % it['title'])
+                continue
             if f is None:
-                (need if why == 'calibre' else skipped).append('“%s”' % it['title'])
+                skipped.append('“%s”' % it['title'])
                 continue
             ready.append(dict(it, file=f))
         if not ready:
-            return 0, skipped, need
+            return 0, skipped, failed
         sent = ops.upload(self.conn, ready, log)
-        return sent, skipped, need
+        return sent, skipped, failed
 
     def sync(self, add, remove, note=''):
         """Removes and adds books in one go, then reads the reader again. Call from a worker thread."""
@@ -463,9 +471,8 @@ class Devices(QObject):
             msg = 'Done: ' + ', '.join(notes) + '.' if notes else 'Nothing to change.'
             msg += note
             if need:
-                msg += " The %s can't open %s as EPUB%s. %s" % (short_name(reader), ', '.join(need),
-                                                                's' if len(need) > 1 else '', NEEDS_CALIBRE)
-            if is_kindle(reader) and any(lib.Library.format(b) == 'epub' for b in add) and can_convert():
+                msg += " Couldn't convert %s for the %s (the EPUB may be damaged)." % (', '.join(need), short_name(reader))
+            if is_kindle(reader) and any(lib.Library.format(b) == 'epub' for b in add):
                 msg += ' Covers show once the Kindle is unplugged.'
             self.message = msg
         except Exception as e:
@@ -494,8 +501,8 @@ class Devices(QObject):
         self._end()
 
     def import_books(self, books):
-        """Copies books from the reader into the library. EPUBs and PDFs come as they are; Kindle books and
-        other formats become EPUBs through Calibre; store books locked with DRM can't be copied.
+        """Copies books from the reader into the library. EPUBs and PDFs come as they are;
+        Kindle books (AZW3, MOBI, AZW) become EPUBs; store books locked with DRM can't be copied.
         Returns the library books added. Call from a worker thread."""
         if not books or not self._begin():
             return []
@@ -509,7 +516,7 @@ class Devices(QObject):
             todo = []
             with self._io:
                 for b in books:
-                    if needs_conversion(b) and not can_convert():
+                    if not can_import(b):
                         need.append(name(b['path']))
                     elif ops.locked(self.conn, b['path']):
                         # the file's own header says it's encrypted: don't copy it at all
@@ -563,8 +570,7 @@ class Devices(QObject):
                 notes.append("%s %s locked with DRM, so %s can't be copied." % (
                     ', '.join(locked), 'is a store book' if one else 'are store books', 'it' if one else 'they'))
             if need:
-                notes.append('%s %s in a Kindle format; install Calibre (free, calibre-ebook.com) to bring %s in as EPUB.'
-                             % (', '.join(need), 'is' if len(need) == 1 else 'are', 'it' if len(need) == 1 else 'them'))
+                notes.append("%s %s in a format Book Forge can't import." % (', '.join(need), 'is' if len(need) == 1 else 'are'))
             if failed:
                 notes.append("Couldn't import %s." % ', '.join(failed))
             self.message = ' '.join(notes)
@@ -589,9 +595,8 @@ class Devices(QObject):
             return
         books = self.to_import()
         store = sum(1 for b in self.only_on_reader() if self.likely_locked(b))
-        need = 0 if can_convert() else sum(1 for b in self.only_on_reader() if not self.likely_locked(b) and needs_conversion(b))
-        need_note = (' %d book%s in a Kindle format; install Calibre (free, calibre-ebook.com) to bring %s in as EPUB.'
-                     % (need, ' is' if need == 1 else 's are', 'it' if need == 1 else 'them')) if need else ''
+        need = sum(1 for b in self.only_on_reader() if not self.likely_locked(b) and not can_import(b))
+        need_note = (" %d book%s in a format Book Forge can't import." % (need, ' is' if need == 1 else 's are')) if need else ''
 
         def store_note(other):
             if not store:
@@ -617,8 +622,8 @@ class Devices(QObject):
         books = self.to_send()
         already = sum(1 for b in L.books if self.match(b) is not None)
         waiting = [b for b in L.books if self.match(b) is None and L.format(b) == 'epub' and not accepts(reader, 'epub')]
-        need_note = (" %d EPUB%s can't go on the %s without converting. %s" % (
-            len(waiting), '' if len(waiting) == 1 else 's', short_name(reader), NEEDS_CALIBRE)) if waiting else ''
+        need_note = (" %d EPUB%s can't go on the %s, which doesn't open EPUBs." % (
+            len(waiting), '' if len(waiting) == 1 else 's', short_name(reader))) if waiting else ''
         if not books:
             self.message = ('Every book in your library is already on the %s.' % short_name(reader)) if not waiting else need_note.strip()
             self._emit()

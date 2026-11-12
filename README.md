@@ -26,6 +26,7 @@ Languages: Indonesian, English, Japanese, Korean, Chinese (Simplified), Chinese 
 - **Built-in reader.** Double-click a book to read it. EPUBs turn pages like an e-reader: one or two pages, arrow keys, clicks, swipes, contents, text size, fonts and light, sepia or dark themes. Vertical Japanese books read right to left. Book Forge remembers where you stopped.
 - **E-readers over USB.** Plug in a Kindle, Kobo, PocketBook, Boox or other e-reader and it appears in the sidebar with its name, a drawing of the device, free space and the books on it. Newer Kindles and Boox readers, which connect by MTP rather than as a drive, work too.
   - **Sync:** tick the library books you want on the reader and press **Sync**. Missing ones are copied and unticked ones are removed. Books bought from the store stay unless you untick them.
+  - **Kindle books:** EPUBs go onto a Kindle as Kindle books (AZW3), so they appear in the Kindle's own library with their covers. Book Forge converts them itself; no other software is needed.
   - **Import:** books that are only on the reader can be copied into the library. EPUBs and PDFs come over as they are; Kindle books (AZW3, MOBI) are converted to EPUB. Store books locked with DRM (and Amazon's KFX format) can't be copied.
 - **One-click Import and Send.** **Import New Books** copies every book that's only on the reader into the library; **Send New Books** copies every library book the reader doesn't have yet. Nothing is removed and nothing is copied twice:
   - books are recognised by the ID Book Forge gives them and by title (ignoring case, accents and punctuation);
@@ -47,7 +48,6 @@ Languages: Indonesian, English, Japanese, Korean, Chinese (Simplified), Chinese 
 
 Optional:
 
-- [Calibre](https://calibre-ebook.com), only to turn EPUBs into Kindle books (so they appear in the Kindle's own library with covers) and to import Kindle-format books as EPUB. Without it, Book Forge sends EPUBs to readers that open them (Kobo, PocketBook, Boox, and Kindles running KOReader) and PDFs to any reader. Email to Kindle converts EPUBs too.
 - For scanned PDFs on Windows and Linux: [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) with the languages your books are in. The Mac uses Apple's built-in text recognition.
 - For Claude translation: an API key from [console.anthropic.com](https://console.anthropic.com). The book's text is sent to Anthropic for translation. The key is kept in the macOS Keychain, Windows Credential Manager or your Linux keyring.
 - For Apple translation: the language pair downloaded under System Settings → General → Language & Region → Translation Languages.

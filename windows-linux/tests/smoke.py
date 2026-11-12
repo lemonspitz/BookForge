@@ -64,3 +64,33 @@ def run(i=0):
 QTimer.singleShot(1500, run)
 app.exec()
 print('screenshots:', sorted(os.listdir(out)))
+
+# Kindle books without Calibre: EPUB -> AZW3 -> EPUB keeps the text, contents and cover
+import io, zipfile
+from bookforge import kindlebook, kindleread
+epub = os.path.join(lib_dir, 'kindle-test.epub')
+with zipfile.ZipFile(epub, 'w') as z:
+    z.writestr('mimetype', 'application/epub+zip')
+    z.writestr('META-INF/container.xml', '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles>'
+               '<rootfile full-path="c.opf" media-type="application/oebps-package+xml"/></rootfiles></container>')
+    z.writestr('c.opf', '<package xmlns="http://www.idpf.org/2007/opf" version="2.0"><metadata xmlns:dc="http://purl.org/'
+               'dc/elements/1.1/"><dc:title>Kindle Test</dc:title><dc:creator>Smoke</dc:creator><dc:language>ja</dc:language>'
+               '</metadata><manifest><item id="a" href="a.xhtml" media-type="application/xhtml+xml"/><item id="b" '
+               'href="b.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="a"/><itemref idref="b"/>'
+               '</spine></package>')
+    for n, body in (('a', '<h1>One</h1><p>吾輩は猫である。<a href="b.xhtml#x">next</a></p>'), ('b', '<h1 id="x">Two</h1><p>名前はまだ無い。</p>')):
+        z.writestr(n + '.xhtml', '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>%s</title></head><body>%s</body></html>' % (n, body))
+cover = io.BytesIO()
+Image.new('RGB', (300, 450), 'navy').save(cover, 'JPEG')
+azw3 = os.path.join(lib_dir, 'kindle-test.azw3')
+kindlebook.write(epub, azw3, asin='SMOKE-1', cover=cover.getvalue())
+from bookforge.readers import meta
+m = meta.mobi(open(azw3, 'rb').read(65536))
+assert (m.title, m.authors, m.asin, m.cdetype) == ('Kindle Test', ['Smoke'], 'SMOKE-1', 'EBOK'), vars(m)
+back = os.path.join(lib_dir, 'kindle-test-back.epub')
+kindleread.to_epub(azw3, back)
+z = zipfile.ZipFile(back)
+text = ''.join(z.read(n).decode('utf-8') for n in z.namelist() if n.startswith('OEBPS/text/'))
+assert '吾輩は猫である' in text and '名前はまだ無い' in text and 'part0002.xhtml#x' in text, text[:500]
+assert 'properties="cover-image"' in z.read('OEBPS/content.opf').decode()
+print('kindle round trip: ok (%d bytes)' % os.path.getsize(azw3))
