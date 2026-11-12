@@ -1,6 +1,7 @@
 # Builds the Windows and Linux apps (windows-linux/) and checks them without a screen or an e-reader.
-# Pushing a version tag (v1.2, ...) also publishes a release with both builds, the notes in
-# .github/release-notes/<tag>.md, and the Mac app from the previous release (rebuild it on a Mac when it changes).
+# To release: push a version tag (v1.2, ...), or run the workflow by hand with that tag as `release`. It publishes
+# a release with both builds, the notes in .github/release-notes/<tag>.md, and the Mac app from the previous
+# release (rebuild that on a Mac when it changes).
 name: Build Windows and Linux
 
 on:
@@ -8,6 +9,11 @@ on:
     branches: [build-*]
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Version tag to release from this commit, e.g. v1.2 (leave empty to only build)'
+        required: false
+        default: ''
 
 jobs:
   build:
@@ -96,14 +102,14 @@ jobs:
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.release != ''
     runs-on: ubuntu-22.04
     permissions:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      TAG: ${{ github.ref_name }}
+      TAG: ${{ inputs.release || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -121,4 +127,4 @@ jobs:
           notes=".github/release-notes/$TAG.md"
           [ -f "$notes" ] || { echo "::error::$notes is missing"; exit 1; }
           ls -l assets
-          gh release create "$TAG" assets/* --title "Book Forge ${TAG#v}" --notes-file "$notes" --verify-tag
+          gh release create "$TAG" assets/* --title "Book Forge ${TAG#v}" --notes-file "$notes" --target "$GITHUB_SHA"
