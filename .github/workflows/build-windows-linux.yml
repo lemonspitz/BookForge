@@ -13,6 +13,10 @@ on:
         description: 'Version tag to release from this commit, e.g. v1.2 (leave empty to only build)'
         required: false
         default: ''
+      reuse_mac:
+        description: "Reuse the Mac app from the latest release (when it hasn't changed) instead of building it"
+        type: boolean
+        default: false
 
 jobs:
   build:
@@ -101,6 +105,7 @@ jobs:
           retention-days: 7
 
   mac:
+    if: ${{ !inputs.reuse_mac }}
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -143,7 +148,10 @@ jobs:
 
   release:
     needs: [build, mac]
-    if: startsWith(github.ref, 'refs/tags/v') || inputs.release != ''
+    if: >-
+      always() && needs.build.result == 'success'
+      && (needs.mac.result == 'success' || (inputs.reuse_mac && needs.mac.result == 'skipped'))
+      && (startsWith(github.ref, 'refs/tags/v') || inputs.release != '')
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -161,7 +169,9 @@ jobs:
           merge-multiple: true
 
       - name: The Mac app
-        run: ls assets/Book-Forge.zip
+        run: |
+          if [ "${{ inputs.reuse_mac }}" = true ]; then gh release download --pattern Book-Forge.zip --dir assets; fi
+          ls -l assets/Book-Forge.zip
 
       - name: Publish
         run: |
