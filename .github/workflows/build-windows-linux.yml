@@ -101,9 +101,16 @@ jobs:
           retention-days: 7
 
   mac:
-    runs-on: macos-26
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+
+      - name: Xcode 26 (the app targets macOS 26)
+        run: |
+          xc=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$xc" ] || { echo "::error::no Xcode 26 on this runner"; ls -d /Applications/Xcode*; exit 1; }
+          sudo xcode-select -s "$xc"
+          swiftc --version
 
       - uses: actions/setup-python@v5
         with:
