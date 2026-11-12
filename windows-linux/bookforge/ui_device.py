@@ -1,6 +1,6 @@
 """The e-reader screen: what's on it, one-click Import and Send, and tick-to-sync."""
 from .qt import (QBrush, QColor, QHBoxLayout, QHeaderView, QLabel, QProgressBar, QPushButton, QSize,
-                     QStackedWidget, QStyledItemDelegate, Qt, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+                     QStackedWidget, QStyledItemDelegate, Qt, QTimer, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from . import devices as dev, theme
 from . import library as lib
@@ -342,7 +342,9 @@ class DeviceView(QWidget):
         kind, k = data
         target = self.wanted if kind == 'lib' else self.keep
         (target.add if on else target.discard)(k)
-        self.rebuild()
+        # rebuild once Qt has finished with this click: clearing the list inside its itemChanged signal deletes
+        # the item Qt is still handling, which crashes on Windows
+        QTimer.singleShot(0, self.rebuild)
 
     def fill_footer(self):
         add, remove = self.to_add(), self.to_remove()
