@@ -270,6 +270,7 @@ class Devices(QObject):
                 self.busy_kind = detect.kind_of(str(e))
                 return 'busy', str(e) or 'Your e-reader', None
         st = self.conn
+        getattr(st, 'forget', lambda: None)()      # list the drive afresh: something may have changed it
         files = st.files()
         books = ops.list_books(st)
         ops.save_title_cache()
@@ -456,6 +457,7 @@ class Devices(QObject):
             return
         reader = self.reader
         notes = []
+        t0 = time.time()
         try:
             with self._io:
                 if remove:
@@ -480,9 +482,12 @@ class Devices(QObject):
             import traceback
             traceback.print_exc()
             self.message = str(e)
+        t1 = time.time()
         self.working = None
         self._running = False
         self._rescan_blocking()
+        print('sync: %d added, %d removed on %s in %.1fs, then read the reader again in %.1fs'
+              % (len(add), len(remove), reader['name'], t1 - t0, time.time() - t1))
 
     def eject(self):
         if not self._begin():

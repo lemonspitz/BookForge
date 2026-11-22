@@ -142,6 +142,8 @@ def upload(storage, items, log):
             ours.pop(lp.lower(), None)
     folder = book_dir(storage.kind)
     present = {b['lpath'].lower() for b in books} - {lp.lower() for lp in old}
+    import time
+    started, copied = time.time(), 0
     for i, it in enumerate(items):
         e = it['file'].rsplit('.', 1)[-1].lower()
         lpath = '%s%s - %s.%s' % (folder, safe_name(it['title']), it['uuid'][:8].lower(), e)
@@ -151,6 +153,11 @@ def upload(storage, items, log):
             kindle_thumbnail(storage, it['file'], it.get('cover'))
         ours[lpath.lower()] = dict(title=it['title'], authors=it['authors'], uuid=it['uuid'])
         present.add(lpath.lower())
+        copied += os.path.getsize(it['file'])
+    took = max(time.time() - started, 0.001)
+    # in the log, so a slow Sync shows whether the reader's own storage is the limit
+    print('copied %d book%s (%.1f MB) to %s in %.1fs: %.1f MB/s'
+          % (len(items), '' if len(items) == 1 else 's', copied / 1e6, storage.name, took, copied / 1e6 / took))
     index.save(storage, {lp: v for lp, v in ours.items() if lp in present})
     return len(items)
 
